@@ -1,0 +1,346 @@
+{
+  "users": [
+    {
+      "id": "usr_karan",
+      "full_name": "Karan Sharma",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=karan",
+      "phone": "+91 98765 43210",
+      "city": "Bengaluru",
+      "xp_points": 5200,
+      "badge_level": "Legend",
+      "reports_count": 24,
+      "validations_count": 52,
+      "resolved_count": 18,
+      "created_at": "2026-04-28T08:23:50.170Z",
+      "role": "citizen"
+    },
+    {
+      "id": "usr_aanya",
+      "full_name": "Aanya Iyer",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=aanya",
+      "phone": "+91 91234 56789",
+      "city": "Chennai",
+      "xp_points": 1650,
+      "badge_level": "Champion",
+      "reports_count": 8,
+      "validations_count": 32,
+      "resolved_count": 5,
+      "created_at": "2026-05-28T08:23:50.170Z",
+      "role": "citizen"
+    },
+    {
+      "id": "usr_rahul",
+      "full_name": "Rahul Patel",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=rahul",
+      "phone": "+91 88888 77777",
+      "city": "Mumbai",
+      "xp_points": 750,
+      "badge_level": "Validator",
+      "reports_count": 3,
+      "validations_count": 25,
+      "resolved_count": 1,
+      "created_at": "2026-06-12T08:23:50.170Z",
+      "role": "citizen"
+    },
+    {
+      "id": "usr_citizen",
+      "full_name": "Kamakshi Giri",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=kamakshi",
+      "phone": "+91 99999 88888",
+      "city": "Bengaluru",
+      "xp_points": 120,
+      "badge_level": "Reporter",
+      "reports_count": 1,
+      "validations_count": 5,
+      "resolved_count": 0,
+      "created_at": "2026-06-22T08:23:50.170Z",
+      "role": "citizen"
+    },
+    {
+      "id": "usr_admin",
+      "full_name": "Municipal Officer (Admin)",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=officer",
+      "phone": "+91 11111 22222",
+      "city": "Bengaluru",
+      "xp_points": 1500,
+      "badge_level": "Champion",
+      "reports_count": 0,
+      "validations_count": 0,
+      "resolved_count": 0,
+      "created_at": "2026-03-19T08:23:50.170Z",
+      "role": "admin"
+    }
+  ],
+  "reports": [
+    {
+      "id": "rep_1",
+      "title": "Massive dangerous crater pothole on Outer Ring Road",
+      "description": "A huge pothole has formed right in the middle lane of the Outer Ring Road near the Marathahalli flyover. It is causing extreme traffic slowdowns and poses a high risk to two-wheelers, especially at night. Several riders have narrowly avoided accidents here.",
+      "category": "pothole",
+      "severity": "high",
+      "status": "assigned",
+      "lat": 12.9562,
+      "lng": 77.7011,
+      "address": "Outer Ring Road, near Marathahalli Flyover, Bengaluru, Karnataka 560037",
+      "city": "Bengaluru",
+      "ward": "Ward 85 (Doddanekundi)",
+      "photo_urls": [
+        "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1599740831146-80c83523094c?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800&q=80"
+      ],
+      "ai_category": "pothole",
+      "ai_urgency_score": 8,
+      "ai_suggested_authority": "Bruhat Bengaluru Mahanagara Palike (BBMP) - Road Infrastructure Division",
+      "upvotes_count": 14,
+      "comments_count": 3,
+      "reporter_id": "usr_karan",
+      "reporter_name": "Karan Sharma",
+      "reporter_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=karan",
+      "assigned_authority": "BBMP Assistant Executive Engineer (AEE)",
+      "assigned_at": "2026-06-26T08:23:50.170Z",
+      "sla_deadline": "2026-06-28T08:23:50.170Z",
+      "created_at": "2026-06-25T08:23:50.170Z",
+      "updated_at": "2026-06-26T08:23:50.170Z"
+    },
+    {
+      "id": "rep_2",
+      "title": "Overflowing garbage dump outside secondary school gate",
+      "description": "Local vendors and residents have started dumping piles of wet and dry garbage right outside the secondary school gate. Stray dogs are scattering it across the street, creating an extremely unhygienic environment and horrible smell for students.",
+      "category": "garbage",
+      "severity": "medium",
+      "status": "in_progress",
+      "lat": 19.0596,
+      "lng": 72.8295,
+      "address": "St. Andrews School Road, Bandra West, Mumbai, Maharashtra 400050",
+      "city": "Mumbai",
+      "ward": "H-West Ward",
+      "photo_urls": [
+        "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1530587191325-3db32d826c18?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1503596476-1c12a8ba09a9?auto=format&fit=crop&w=800&q=80"
+      ],
+      "ai_category": "garbage",
+      "ai_urgency_score": 5,
+      "ai_suggested_authority": "Municipal Corporation of Greater Mumbai (MCGM)",
+      "upvotes_count": 22,
+      "comments_count": 4,
+      "reporter_id": "usr_rahul",
+      "reporter_name": "Rahul Patel",
+      "reporter_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=rahul",
+      "assigned_authority": "Ward Sanitation Inspector",
+      "assigned_at": "2026-06-26T20:23:50.170Z",
+      "sla_deadline": "2026-06-27T20:23:50.170Z",
+      "created_at": "2026-06-26T08:23:50.170Z",
+      "updated_at": "2026-06-26T20:23:50.170Z"
+    },
+    {
+      "id": "rep_3",
+      "title": "Entire row of streetlights broken near park",
+      "description": "The entire stretch of streetlights around Anna Nagar Central Park is completely dark. None of the five poles are functional. It makes the footpath extremely unsafe for evening and early morning walkers, and there have been reports of mobile snatching.",
+      "category": "streetlight",
+      "severity": "high",
+      "status": "pending",
+      "lat": 13.085,
+      "lng": 80.2101,
+      "address": "6th Avenue, Anna Nagar East, Chennai, Tamil Nadu 600102",
+      "city": "Chennai",
+      "ward": "Zone 8 (Anna Nagar)",
+      "photo_urls": [
+        "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=800&q=80"
+      ],
+      "ai_category": "streetlight",
+      "ai_urgency_score": 7,
+      "ai_suggested_authority": "Greater Chennai Corporation (GCC) - Electrical Department",
+      "upvotes_count": 6,
+      "comments_count": 0,
+      "reporter_id": "usr_aanya",
+      "reporter_name": "Aanya Iyer",
+      "reporter_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=aanya",
+      "created_at": "2026-06-27T02:23:50.170Z",
+      "updated_at": "2026-06-27T02:23:50.170Z"
+    },
+    {
+      "id": "rep_4",
+      "title": "Leaking sewage line contaminating water inlet",
+      "description": "A major underground sewage pipe has cracked and black sewage water is bubbling up onto the street, flowing directly into a main municipal drinking water inlet. The water in our houses has started smelling foul. Urgent action required to avoid disease outbreak!",
+      "category": "sewage",
+      "severity": "critical",
+      "status": "resolved",
+      "lat": 28.7159,
+      "lng": 77.1139,
+      "address": "Sector 9 Metro Road, Rohini, Delhi 110085",
+      "city": "Delhi",
+      "ward": "Rohini Zone (Ward 54)",
+      "photo_urls": [
+        "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=800&q=80"
+      ],
+      "ai_category": "sewage",
+      "ai_urgency_score": 10,
+      "ai_suggested_authority": "Delhi Jal Board (DJB)",
+      "upvotes_count": 35,
+      "comments_count": 2,
+      "reporter_id": "usr_citizen",
+      "reporter_name": "Kamakshi Giri",
+      "reporter_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=kamakshi",
+      "assigned_authority": "DJB Maintenance Team",
+      "assigned_at": "2026-06-23T08:23:50.170Z",
+      "resolved_at": "2026-06-25T08:23:50.170Z",
+      "sla_deadline": "2026-06-24T08:23:50.170Z",
+      "resolution_photo_url": "https://images.unsplash.com/photo-1581094288338-2314dddb7ece?auto=format&fit=crop&w=800&q=80",
+      "resolution_note": "DJB emergency crew excavated the site, replaced the damaged 12-inch sewer line, and thoroughly flushed and sanitized the adjacent water inlet line. Fresh water supply has been restored and tested clear.",
+      "citizen_rating": 5,
+      "created_at": "2026-06-22T08:23:50.170Z",
+      "updated_at": "2026-06-25T08:23:50.170Z"
+    }
+  ],
+  "upvotes": [
+    {
+      "id": "up_1",
+      "report_id": "rep_1",
+      "user_id": "usr_aanya",
+      "created_at": "2026-06-27T08:23:50.170Z"
+    },
+    {
+      "id": "up_2",
+      "report_id": "rep_1",
+      "user_id": "usr_rahul",
+      "created_at": "2026-06-27T08:23:50.170Z"
+    },
+    {
+      "id": "up_3",
+      "report_id": "rep_2",
+      "user_id": "usr_karan",
+      "created_at": "2026-06-27T08:23:50.170Z"
+    },
+    {
+      "id": "up_4",
+      "report_id": "rep_4",
+      "user_id": "usr_karan",
+      "created_at": "2026-06-27T08:23:50.170Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": "com_1",
+      "report_id": "rep_1",
+      "user_id": "usr_rahul",
+      "user_name": "Rahul Patel",
+      "user_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=rahul",
+      "content": "Agreed! Passed by ORR yesterday and almost hit it. Please drive extremely slow in the middle lane.",
+      "created_at": "2026-06-25T20:23:50.170Z"
+    },
+    {
+      "id": "com_2",
+      "report_id": "rep_1",
+      "user_id": "usr_aanya",
+      "user_name": "Aanya Iyer",
+      "user_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=aanya",
+      "content": "Is this near the Novotel junction? If yes, it's absolutely lethal during rain.",
+      "created_at": "2026-06-26T08:23:50.170Z"
+    },
+    {
+      "id": "com_3",
+      "report_id": "rep_2",
+      "user_id": "usr_karan",
+      "user_name": "Karan Sharma",
+      "user_avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=karan",
+      "content": "This is unacceptable. Kids should not have to walk past toxic fumes and stray animals to enter a school. I've upvoted.",
+      "created_at": "2026-06-26T14:23:50.170Z"
+    }
+  ],
+  "status_timeline": [
+    {
+      "id": "tl_1",
+      "report_id": "rep_1",
+      "old_status": "",
+      "new_status": "pending",
+      "changed_by": "usr_karan",
+      "changed_by_name": "Karan Sharma",
+      "note": "Issue reported by citizen.",
+      "created_at": "2026-06-25T08:23:50.170Z"
+    },
+    {
+      "id": "tl_2",
+      "report_id": "rep_1",
+      "old_status": "pending",
+      "new_status": "validated",
+      "changed_by": "usr_rahul",
+      "changed_by_name": "Rahul Patel",
+      "note": "Auto-validated: Issue reached community validation threshold (10 upvotes).",
+      "created_at": "2026-06-25T13:11:50.170Z"
+    },
+    {
+      "id": "tl_3",
+      "report_id": "rep_1",
+      "old_status": "validated",
+      "new_status": "assigned",
+      "changed_by": "usr_admin",
+      "changed_by_name": "Municipal Officer (Admin)",
+      "note": "Assigned to BBMP Road Infrastructure Division (AEE Office). SLA set to 48 hours.",
+      "created_at": "2026-06-26T08:23:50.170Z"
+    },
+    {
+      "id": "tl_4",
+      "report_id": "rep_4",
+      "old_status": "",
+      "new_status": "pending",
+      "changed_by": "usr_citizen",
+      "changed_by_name": "Kamakshi Giri",
+      "note": "Critical sewage leak reported.",
+      "created_at": "2026-06-22T08:23:50.170Z"
+    },
+    {
+      "id": "tl_5",
+      "report_id": "rep_4",
+      "old_status": "pending",
+      "new_status": "validated",
+      "changed_by": "usr_karan",
+      "changed_by_name": "Karan Sharma",
+      "note": "Auto-validated: Crossed 10 upvotes.",
+      "created_at": "2026-06-22T20:23:50.170Z"
+    },
+    {
+      "id": "tl_6",
+      "report_id": "rep_4",
+      "old_status": "validated",
+      "new_status": "assigned",
+      "changed_by": "usr_admin",
+      "changed_by_name": "Municipal Officer (Admin)",
+      "note": "Emergency dispatch to Delhi Jal Board maintenance office.",
+      "created_at": "2026-06-23T08:23:50.170Z"
+    },
+    {
+      "id": "tl_7",
+      "report_id": "rep_4",
+      "old_status": "assigned",
+      "new_status": "resolved",
+      "changed_by": "usr_admin",
+      "changed_by_name": "Municipal Officer (Admin)",
+      "note": "Sewer line replaced. Fresh water supply line flushed. Area sanitized.",
+      "created_at": "2026-06-25T08:23:50.170Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "not_1",
+      "user_id": "usr_citizen",
+      "type": "status_update",
+      "title": "Issue Assigned!",
+      "message": "Your reported issue 'Leaking sewage line contaminating water inlet' has been assigned to Delhi Jal Board Maintenance Team.",
+      "report_id": "rep_4",
+      "read": true,
+      "created_at": "2026-06-23T08:23:50.170Z"
+    },
+    {
+      "id": "not_2",
+      "user_id": "usr_citizen",
+      "type": "resolution",
+      "title": "Issue Resolved! 🎉",
+      "message": "Great news! Delhi Jal Board has marked your reported sewage leak as resolved. Please review and rate the work.",
+      "report_id": "rep_4",
+      "read": false,
+      "created_at": "2026-06-25T08:23:50.170Z"
+    }
+  ]
+}

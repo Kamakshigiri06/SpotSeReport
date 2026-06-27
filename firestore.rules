@@ -1,0 +1,161 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY PRIMITIVES ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- ENTITY VALIDATORS ---
+
+    function isValidUser(data) {
+      return data.id is string && 
+             data.id.size() <= 128 &&
+             data.full_name is string && 
+             data.full_name.size() <= 100 &&
+             data.city is string && 
+             data.city.size() <= 100 &&
+             data.xp_points is int &&
+             data.badge_level is string &&
+             data.reports_count is int &&
+             data.validations_count is int &&
+             data.resolved_count is int &&
+             data.created_at is string &&
+             data.role is string;
+    }
+
+    function isValidReport(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.title is string &&
+             data.title.size() <= 200 &&
+             data.category is string &&
+             data.severity is string &&
+             data.status is string &&
+             data.lat is number &&
+             data.lng is number &&
+             data.address is string &&
+             data.city is string &&
+             data.reporter_id is string &&
+             data.reporter_name is string;
+    }
+
+    function isValidUpvote(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.report_id is string &&
+             data.user_id is string;
+    }
+
+    function isValidComment(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.report_id is string &&
+             data.user_id is string &&
+             data.content is string &&
+             data.content.size() <= 2000;
+    }
+
+    function isValidStatusTimeline(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.report_id is string &&
+             data.new_status is string &&
+             data.changed_by is string;
+    }
+
+    function isValidNotification(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.user_id is string &&
+             data.type is string &&
+             data.title is string &&
+             data.title.size() <= 200 &&
+             data.message is string &&
+             data.message.size() <= 1000;
+    }
+
+    // --- COLLECTION RULES ---
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidUser(incoming()) && isOwner(userId);
+      allow update: if isSignedIn() && isValidUser(incoming()) && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 2. Reports collection
+    match /reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidReport(incoming()) && isOwner(incoming().reporter_id);
+      allow update: if isSignedIn() && isValidReport(incoming()) && (
+        isOwner(existing().reporter_id) || 
+        isAdmin() || 
+        // Action: upvote count update or comment count update
+        incoming().diff(existing()).affectedKeys().hasAny(['upvotes_count', 'comments_count', 'status', 'assigned_authority', 'assigned_at', 'sla_deadline', 'resolved_at', 'resolution_photo_url', 'resolution_note', 'citizen_rating'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 3. Upvotes collection
+    match /upvotes/{upvoteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidUpvote(incoming()) && isOwner(incoming().user_id);
+      allow update: if isSignedIn() && isValidUpvote(incoming()) && (isOwner(existing().user_id) || isAdmin());
+      allow delete: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
+    }
+
+    // 4. Comments collection
+    match /comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidComment(incoming()) && isOwner(incoming().user_id);
+      allow update: if isSignedIn() && isValidComment(incoming()) && (isOwner(existing().user_id) || isAdmin());
+      allow delete: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
+    }
+
+    // 5. Status Timeline collection
+    match /status_timeline/{timelineId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidStatusTimeline(incoming()) && (isOwner(incoming().changed_by) || isAdmin());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 6. Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && isOwner(resource.data.user_id);
+      allow create: if isSignedIn() && isValidNotification(incoming());
+      allow update: if isSignedIn() && isOwner(existing().user_id) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && isOwner(existing().user_id);
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "SpotseReport",
+  "description": "Citizen-powered community issue reporting, AI-smart triage, and municipal resolution platform.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

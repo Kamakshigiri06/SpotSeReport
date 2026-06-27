@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with gamified civic stats",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "phone": { "type": "string" },
+        "city": { "type": "string" },
+        "xp_points": { "type": "integer" },
+        "badge_level": { "type": "string" },
+        "reports_count": { "type": "integer" },
+        "validations_count": { "type": "integer" },
+        "resolved_count": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "full_name", "city"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Municipal grievance report submitted by a citizen",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "severity": { "type": "string" },
+        "status": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "ward": { "type": "string" },
+        "photo_urls": { "type": "array" },
+        "video_url": { "type": "string" },
+        "ai_category": { "type": "string" },
+        "ai_urgency_score": { "type": "integer" },
+        "ai_suggested_authority": { "type": "string" },
+        "upvotes_count": { "type": "integer" },
+        "comments_count": { "type": "integer" },
+        "reporter_id": { "type": "string" },
+        "reporter_name": { "type": "string" },
+        "reporter_avatar": { "type": "string" },
+        "assigned_authority": { "type": "string" },
+        "assigned_at": { "type": "string", "format": "date-time" },
+        "sla_deadline": { "type": "string", "format": "date-time" },
+        "resolved_at": { "type": "string", "format": "date-time" },
+        "resolution_photo_url": { "type": "string" },
+        "resolution_note": { "type": "string" },
+        "citizen_rating": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "lat", "lng", "address", "city"]
+    },
+    "Upvote": {
+      "title": "Upvote",
+      "description": "Represents an upvote on a specific report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "report_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "report_id", "user_id"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A discussion comment left on a report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "report_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "user_avatar": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "report_id", "user_id", "content"]
+    },
+    "StatusTimeline": {
+      "title": "StatusTimeline",
+      "description": "Chronological log of status updates for a report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "report_id": { "type": "string" },
+        "old_status": { "type": "string" },
+        "new_status": { "type": "string" },
+        "changed_by": { "type": "string" },
+        "changed_by_name": { "type": "string" },
+        "note": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "report_id", "new_status", "changed_by"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app alert notification sent to a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "report_id": { "type": "string" },
+        "read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "type", "title", "message"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of user profiles"
+    },
+    "reports": {
+      "schema": "Report",
+      "description": "Collection of reports submitted"
+    },
+    "upvotes": {
+      "schema": "Upvote",
+      "description": "Collection of upvotes"
+    },
+    "comments": {
+      "schema": "Comment",
+      "description": "Collection of comments"
+    },
+    "status_timeline": {
+      "schema": "StatusTimeline",
+      "description": "Collection of status timeline logs"
+    },
+    "notifications": {
+      "schema": "Notification",
+      "description": "Collection of in-app notifications"
+    }
+  }
+}
