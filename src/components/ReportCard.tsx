@@ -3,7 +3,7 @@ import { Report } from "../types";
 import { StatusBadge, SeverityBadge } from "./StatusBadge";
 import { BadgeDisplay } from "./XPBar";
 import { 
-  Trash2, Lightbulb, Droplet, Zap, Store, Hammer, 
+  Trash, Lightbulb, Droplets, Zap, Store, Hammer, 
   AlertOctagon, ShieldAlert, MapPin, MessageSquare, 
   ThumbsUp, Calendar, Hourglass, Star 
 } from "lucide-react";
@@ -22,11 +22,11 @@ export function getCategoryIcon(category: string) {
     case "pothole":
       return { Icon: Hammer, label: "Pothole", color: "text-amber-600 bg-amber-50 border-amber-100" };
     case "garbage":
-      return { Icon: Trash2, label: "Garbage Dump", color: "text-emerald-600 bg-emerald-50 border-emerald-100" };
+      return { Icon: Trash, label: "Garbage Dump", color: "text-emerald-600 bg-emerald-50 border-emerald-100" };
     case "streetlight":
       return { Icon: Lightbulb, label: "Streetlight Broken", color: "text-blue-600 bg-blue-50 border-blue-100" };
     case "water":
-      return { Icon: Droplet, label: "Water Leak", color: "text-cyan-600 bg-cyan-50 border-cyan-100" };
+      return { Icon: Droplets, label: "Water Leak", color: "text-cyan-600 bg-cyan-50 border-cyan-100" };
     case "electricity":
       return { Icon: Zap, label: "Power Grid", color: "text-purple-600 bg-purple-50 border-purple-100" };
     case "sewage":
@@ -106,6 +106,13 @@ export default function ReportCard({
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <StatusBadge status={report.status} />
             <SeverityBadge severity={report.severity} />
+
+            {/* Community Verification Stamp */}
+            {report.upvotes_count >= 2 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-black bg-teal-600 text-white border border-teal-500 rounded-full shadow-sm animate-in fade-in duration-200">
+                ✓ Community Verified
+              </span>
+            )}
             
             {/* SLA Alert */}
             {sla && (
@@ -174,9 +181,10 @@ export default function ReportCard({
                   ? "bg-teal-50 text-teal-600 border-teal-200" 
                   : "bg-white hover:bg-slate-50 text-slate-600 border-slate-200"
               }`}
+              title="Verify or support this reported issue"
             >
-              <ThumbsUp className={`w-3.5 h-3.5 ${hasUpvoted ? "fill-teal-600" : ""}`} />
-              <span>{report.upvotes_count}</span>
+              <ThumbsUp className={`w-3.5 h-3.5 ${hasUpvoted ? "fill-teal-600 animate-bounce" : ""}`} />
+              <span>{hasUpvoted ? "Verified" : "Verify Issue"} ({report.upvotes_count})</span>
             </button>
 
             {/* Comments Counter */}

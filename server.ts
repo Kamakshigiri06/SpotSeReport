@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { initializeFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { 
   IssueCategory, 
   IssueSeverity, 
@@ -42,7 +42,9 @@ if (fs.existsSync(firebaseConfigPath)) {
   try {
     const config = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
     firebaseApp = initializeApp(config);
-    firestoreDb = getFirestore(firebaseApp);
+    firestoreDb = initializeFirestore(firebaseApp, {
+      experimentalForceLongPolling: true
+    }, config.firestoreDatabaseId || "(default)");
     console.log("[Firebase] Server-side Firebase SDK initialized successfully.");
   } catch (err) {
     console.error("[Firebase] Server-side initialization failed:", err);

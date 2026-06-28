@@ -66,13 +66,148 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
   const [triage, setTriage] = useState<any>(null);
 
   // Live Camera and Video states
-  const [photoTab, setPhotoTab] = useState<"preset" | "url" | "camera">("preset");
+  const [photoTab, setPhotoTab] = useState<"preset" | "url" | "camera" | "device">("preset");
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [videoMode, setVideoMode] = useState<"image" | "video">("image");
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [isGeolocating, setIsGeolocating] = useState(false);
+
+  const handleGeolocate = () => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser.");
+      return;
+    }
+    setIsGeolocating(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setCoords({ lat: latitude, lng: longitude });
+        
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          if (res.ok) {
+            const data = await res.json();
+            handlePinChange(latitude, longitude, data.display_name || `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)}`);
+          } else {
+            handlePinChange(latitude, longitude, `Coordinated Spot (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`);
+          }
+        } catch (e) {
+          handlePinChange(latitude, longitude, `Coordinated Spot (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`);
+        } finally {
+          setIsGeolocating(false);
+        }
+      },
+      (err) => {
+        console.error(err);
+        setError("Failed to fetch exact GPS location. Please drop a pin manually.");
+        setIsGeolocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  // Helper function to validate file sizes and formats for report media
+  const validateMedia = (
+    mediaSource: File | Blob | string,
+    type: "image" | "video"
+  ): boolean => {
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_VIDEO_SIZE = 25 * 1024 * 1024; // 25MB
+
+    setError(null);
+
+    // If it's a base64 string
+    if (typeof mediaSource === "string") {
+      if (!mediaSource.startsWith("data:")) {
+        setError("Invalid media source format.");
+        return false;
+      }
+      // Estimate size in bytes
+      const stringLength = mediaSource.length - (mediaSource.indexOf(",") + 1);
+      const sizeInBytes = (stringLength * 3) / 4;
+      const mimeType = mediaSource.split(";")[0].split(":")[1];
+
+      if (type === "image") {
+        if (!mimeType.startsWith("image/")) {
+          setError("Invalid file format. Please capture/upload an image.");
+          return false;
+        }
+        if (sizeInBytes > MAX_IMAGE_SIZE) {
+          setError(`Captured photo is too large (${(sizeInBytes / (1024 * 1024)).toFixed(2)}MB). Max size is 10MB.`);
+          return false;
+        }
+      } else if (type === "video") {
+        if (!mimeType.startsWith("video/")) {
+          setError("Invalid file format. Please capture/upload a video.");
+          return false;
+        }
+        if (sizeInBytes > MAX_VIDEO_SIZE) {
+          setError(`Captured video is too large (${(sizeInBytes / (1024 * 1024)).toFixed(2)}MB). Max size is 25MB.`);
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // If it's a File or Blob
+    const file = mediaSource;
+    if (type === "image") {
+      if (!file.type.startsWith("image/")) {
+        setError("Invalid image format. Supported formats: JPEG, PNG, GIF, WEBP, HEIC.");
+        return false;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        setError(`Image file is too large (${(file.size / (1024 * 1024)).toFixed(2)}MB). Max size is 10MB.`);
+        return false;
+      }
+    } else if (type === "video") {
+      if (!file.type.startsWith("video/") && file.type !== "") {
+        setError("Invalid video format. Supported formats: MP4, WEBM, OGG, MOV.");
+        return false;
+      }
+      if (file.size > MAX_VIDEO_SIZE) {
+        setError(`Video file is too large (${(file.size / (1024 * 1024)).toFixed(2)}MB). Max size is 25MB.`);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+
+    // Validate first
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+
+    if (isImage) {
+      if (!validateMedia(file, "image")) return;
+    } else if (isVideo) {
+      if (!validateMedia(file, "video")) return;
+    } else {
+      setError("Unsupported file format. Please upload an image or video file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      if (isImage) {
+        setPhotoUrl(base64);
+      } else if (isVideo) {
+        setRecordedVideoUrl(base64);
+        setPhotoUrl("https://images.unsplash.com/photo-1594818858329-051f4917f80f?auto=format&fit=crop&w=800&q=80");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
@@ -240,7 +375,9 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
     if (ctx) {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL("image/jpeg");
-      setPhotoUrl(dataUrl);
+      if (validateMedia(dataUrl, "image")) {
+        setPhotoUrl(dataUrl);
+      }
     }
     stopCamera();
   };
@@ -273,6 +410,9 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
     
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: "video/webm" });
+      if (!validateMedia(blob, "video")) {
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64data = reader.result as string;
@@ -531,6 +671,17 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               >
                 🎥 Live Capture (Webcam)
               </button>
+              <button
+                type="button"
+                onClick={() => { stopCamera(); setPhotoTab("device"); }}
+                className={`flex-1 py-3 text-xs font-bold border-b-2 transition cursor-pointer ${
+                  photoTab === "device"
+                    ? "border-teal-600 text-teal-600 bg-teal-50/10"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                📤 Device File Upload
+              </button>
             </div>
 
             {/* Tab 1: Presets */}
@@ -590,36 +741,87 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
             {photoTab === "camera" && (
               <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 animate-in fade-in duration-200">
                 {!cameraActive ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center space-y-4 font-sans">
-                    <div className="w-16 h-16 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shadow-xs">
-                      <Camera className="w-8 h-8 animate-pulse" />
+                  <div className="space-y-4 font-sans">
+                    <div className="flex flex-col items-center text-center max-w-lg mx-auto space-y-2 mb-2">
+                      <div className="w-12 h-12 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shadow-xs">
+                        <Camera className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-800">Live Capturing Proof of Report</h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Capture real-time photographic proof or high-fidelity video recordings of the municipal hazard. Select one of the capture methods below.
+                      </p>
                     </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-bold text-slate-800">Use Live Webcam Capture</h4>
-                      <p className="text-xs text-slate-500 max-w-sm leading-relaxed">Capture real-time photographic proof or high-fidelity video recordings of the municipal hazard.</p>
-                    </div>
-                    
-                    <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md pt-2">
-                      <button
-                        type="button"
-                        onClick={() => startCamera("image")}
-                        className="flex-1 bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-bold text-xs py-3 px-4 rounded-xl transition shadow-md shadow-teal-500/10 flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Camera className="w-4 h-4" />
-                        Live Photo Stream
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => startCamera("video")}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-bold text-xs py-3 px-4 rounded-xl transition shadow-md shadow-indigo-500/10 flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Video className="w-4 h-4" />
-                        Live Video Stream
-                      </button>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Method A: Browser Webcam */}
+                      <div className="flex flex-col items-center justify-center border border-slate-200 rounded-2xl p-5 text-center bg-white space-y-3 shadow-sm hover:border-teal-500/50 transition">
+                        <Camera className="w-8 h-8 text-teal-600" />
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-800">Browser Webcam Stream</h5>
+                          <p className="text-[10px] text-slate-400 leading-snug mt-1">Open browser-based webcam stream on your computer or mobile screen.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 w-full">
+                          <button
+                            type="button"
+                            onClick={() => startCamera("image")}
+                            className="bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-extrabold text-[10px] py-2 px-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer uppercase"
+                          >
+                            <Camera className="w-3 h-3" /> Photo Stream
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startCamera("video")}
+                            className="bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-extrabold text-[10px] py-2 px-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer uppercase"
+                          >
+                            <Video className="w-3 h-3" /> Video Stream
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Method B: Mobile Device Camera */}
+                      <div className="flex flex-col items-center justify-center border border-slate-200 rounded-2xl p-5 text-center bg-white space-y-3 shadow-sm hover:border-teal-500/50 transition">
+                        <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 font-black text-xs">M</div>
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-800">Mobile Native Camera</h5>
+                          <p className="text-[10px] text-slate-400 leading-snug mt-1">Directly launch your smartphone's native camera app for photo or video.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 w-full">
+                          <div className="relative">
+                            <button
+                              type="button"
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-extrabold text-[10px] py-2 px-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer uppercase"
+                            >
+                              <Camera className="w-3 h-3" /> Take Photo
+                            </button>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                          </div>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              className="w-full bg-rose-600 hover:bg-rose-700 active:scale-98 text-white font-extrabold text-[10px] py-2 px-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer uppercase"
+                            >
+                              <Video className="w-3 h-3" /> Record Video
+                            </button>
+                            <input
+                              type="file"
+                              accept="video/*"
+                              capture="environment"
+                              onChange={handleFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {recordedVideoUrl && (
-                      <div className="w-full max-w-md pt-4 border-t border-slate-200/60 space-y-2 text-left">
+                      <div className="w-full pt-4 border-t border-slate-200/60 space-y-2 text-left">
                         <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                           <span>🎥 Active Video Proof Attached</span>
                           <button
@@ -713,6 +915,39 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               </div>
             )}
 
+            {/* Tab 4: Device File Upload */}
+            {photoTab === "device" && (
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-5 animate-in fade-in duration-200">
+                {/* Standard file select (full width for maximum usability) */}
+                <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center bg-white hover:border-teal-500 transition relative min-h-[200px]">
+                  <Upload className="w-10 h-10 text-slate-400 mb-2" />
+                  <p className="text-sm font-bold text-slate-700">Browse Device Files</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-[280px] leading-snug">Drag & drop or click to choose stored photos or video files from your device storage.</p>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </div>
+
+                {recordedVideoUrl && (
+                  <div className="bg-slate-100 p-3 rounded-xl border flex items-center justify-between">
+                    <span className="text-xs text-slate-600 font-bold flex items-center gap-1.5">
+                      <Video className="w-4 h-4 text-indigo-500" /> Active Video File Attached
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRecordedVideoUrl(null)}
+                      className="text-rose-500 hover:text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" /> Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Visual Selected Display */}
             <div className="flex flex-col sm:flex-row gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
               <div className="flex gap-3 shrink-0">
@@ -779,6 +1014,15 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
                 selectedCoords={coords}
                 onPinChange={handlePinChange}
               />
+              <button
+                type="button"
+                onClick={handleGeolocate}
+                disabled={isGeolocating}
+                className="absolute bottom-4 right-4 z-10 bg-white hover:bg-slate-50 text-slate-800 p-3 rounded-full border border-slate-200 shadow-xl flex items-center justify-center transition active:scale-95 group cursor-pointer disabled:opacity-50"
+                title="Detect My Location"
+              >
+                <MapPin className={`w-5 h-5 text-teal-600 ${isGeolocating ? "animate-bounce" : "group-hover:scale-110 transition"}`} />
+              </button>
             </div>
 
             {/* Coordinate Details Display */}

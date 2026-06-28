@@ -103,59 +103,57 @@ service cloud.firestore {
              data.message.size() <= 1000;
     }
 
+    function isValidBounty(data) {
+      return data.id is string &&
+             data.id.size() <= 128 &&
+             data.sponsor_name is string &&
+             data.title is string &&
+             data.reward_xp is int &&
+             data.status is string;
+    }
+
     // --- COLLECTION RULES ---
 
     // 1. Users collection
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidUser(incoming()) && isOwner(userId);
-      allow update: if isSignedIn() && isValidUser(incoming()) && (isOwner(userId) || isAdmin());
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow write: if isValidUser(incoming());
     }
 
     // 2. Reports collection
     match /reports/{reportId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidReport(incoming()) && isOwner(incoming().reporter_id);
-      allow update: if isSignedIn() && isValidReport(incoming()) && (
-        isOwner(existing().reporter_id) || 
-        isAdmin() || 
-        // Action: upvote count update or comment count update
-        incoming().diff(existing()).affectedKeys().hasAny(['upvotes_count', 'comments_count', 'status', 'assigned_authority', 'assigned_at', 'sla_deadline', 'resolved_at', 'resolution_photo_url', 'resolution_note', 'citizen_rating'])
-      );
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow write: if isValidReport(incoming());
     }
 
     // 3. Upvotes collection
     match /upvotes/{upvoteId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidUpvote(incoming()) && isOwner(incoming().user_id);
-      allow update: if isSignedIn() && isValidUpvote(incoming()) && (isOwner(existing().user_id) || isAdmin());
-      allow delete: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
+      allow read: if true;
+      allow write: if isValidUpvote(incoming());
     }
 
     // 4. Comments collection
     match /comments/{commentId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidComment(incoming()) && isOwner(incoming().user_id);
-      allow update: if isSignedIn() && isValidComment(incoming()) && (isOwner(existing().user_id) || isAdmin());
-      allow delete: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
+      allow read: if true;
+      allow write: if isValidComment(incoming());
     }
 
     // 5. Status Timeline collection
     match /status_timeline/{timelineId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidStatusTimeline(incoming()) && (isOwner(incoming().changed_by) || isAdmin());
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow write: if isValidStatusTimeline(incoming());
     }
 
     // 6. Notifications collection
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && isOwner(resource.data.user_id);
-      allow create: if isSignedIn() && isValidNotification(incoming());
-      allow update: if isSignedIn() && isOwner(existing().user_id) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
-      allow delete: if isSignedIn() && isOwner(existing().user_id);
+      allow read: if true;
+      allow write: if isValidNotification(incoming());
+    }
+
+    // 7. Bounties collection
+    match /bounties/{bountyId} {
+      allow read: if true;
+      allow write: if isValidBounty(incoming());
     }
   }
 }

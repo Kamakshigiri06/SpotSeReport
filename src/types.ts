@@ -14,6 +14,7 @@ export interface Profile {
   validations_count: number;
   resolved_count: number;
   created_at: string;
+  role?: string;
 }
 
 export interface Report {

@@ -183,6 +183,28 @@ export default function AuthPortal({ onAuthSuccess, onClose, isEmbed = false }: 
     }
   };
 
+  const handleSkipToDemo = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: "usr_citizen" })
+      });
+      if (!res.ok) throw new Error("Failed to switch to Demo Citizen session.");
+      const profile = await res.json();
+      setSuccessMsg("Welcome! Proceeding as Demo Citizen...");
+      setTimeout(() => onAuthSuccess(profile), 1000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to enter sandbox demo mode.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (googleUserPending) {
     return (
       <div className={`w-full max-w-md mx-auto bg-white/90 backdrop-blur-md rounded-3xl border border-slate-100 shadow-2xl p-8 text-center`}>
@@ -400,6 +422,15 @@ export default function AuthPortal({ onAuthSuccess, onClose, isEmbed = false }: 
           />
         </svg>
         Continue with Google
+      </button>
+
+      <button
+        onClick={handleSkipToDemo}
+        disabled={loading}
+        className="w-full mt-2.5 py-2.5 px-4 bg-slate-100 hover:bg-slate-200/80 active:scale-98 text-slate-600 rounded-xl text-xs font-extrabold tracking-wide shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all duration-150 disabled:opacity-50 relative z-10"
+      >
+        <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+        Explore with Demo Sandbox Account
       </button>
 
       <div className="mt-6 text-center text-[10px] text-slate-400 font-bold leading-relaxed relative z-10">

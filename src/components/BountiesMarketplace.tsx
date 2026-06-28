@@ -13,7 +13,8 @@ import {
   AlertTriangle,
   RefreshCw,
   X,
-  Camera
+  Camera,
+  Video
 } from "lucide-react";
 import { MicroBounty, IssueCategory } from "../types";
 
@@ -57,6 +58,84 @@ export default function BountiesMarketplace({ currentUserId, onRewardXP }: Bount
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  const [proofTab, setProofTab] = useState<"upload" | "camera">("upload");
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+
+  // Start webcam stream
+  const startCamera = async () => {
+    setCameraActive(true);
+    setErrorMsg("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg("Webcam access failed. Please check permissions.");
+      setCameraActive(false);
+    }
+  };
+
+  // Stop webcam
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setCameraActive(false);
+  };
+
+  // Capture photo snapshot
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg");
+      setAfterPhotoUrl(dataUrl);
+      setCustomPhotoUrl("");
+    }
+    stopCamera();
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setErrorMsg("Only image files are supported for Bounty proof verification.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setAfterPhotoUrl(reader.result as string);
+      setCustomPhotoUrl("");
+      setErrorMsg("");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const closeBountyModal = () => {
+    stopCamera();
+    setSelectedBounty(null);
+    setAfterPhotoUrl("");
+    setCustomPhotoUrl("");
+    setVerificationResult(null);
+    setErrorMsg("");
+    setProofTab("upload");
+  };
 
   const fetchBounties = async () => {
     try {
@@ -366,7 +445,7 @@ export default function BountiesMarketplace({ currentUserId, onRewardXP }: Bount
                   <p className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wide font-bold">Claimed by {selectedBounty.claimed_by_name}</p>
                 </div>
                 <button 
-                  onClick={() => setSelectedBounty(null)}
+                  onClick={closeBountyModal}
                   className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -412,62 +491,175 @@ export default function BountiesMarketplace({ currentUserId, onRewardXP }: Bount
 
                 {!verificationResult ? (
                   <div className="space-y-4">
-                    {/* File Upload Box with Drag and Drop */}
-                    <div
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                        dragOver 
-                          ? "border-amber-500 bg-amber-50/20" 
-                          : afterPhotoUrl 
-                            ? "border-teal-400 bg-teal-50/10" 
-                            : "border-slate-200 hover:border-slate-350"
-                      }`}
-                    >
-                      <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${afterPhotoUrl ? "text-teal-600" : "text-slate-400"}`} />
-                      <p className="text-xs font-bold text-slate-700">Drag & Drop After Photo here</p>
-                      <p className="text-[10px] text-slate-400 mt-1">or drag files directly to upload</p>
+                    {/* Mode Tabs */}
+                    <div className="flex border-b border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => { stopCamera(); setProofTab("upload"); }}
+                        className={`flex-1 text-center py-2 text-xs font-black transition-all cursor-pointer ${
+                          proofTab === "upload" 
+                            ? "text-teal-600 border-b-2 border-teal-600" 
+                            : "text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        📤 File Upload & Presets
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setProofTab("camera"); }}
+                        className={`flex-1 text-center py-2 text-xs font-black transition-all cursor-pointer ${
+                          proofTab === "camera" 
+                            ? "text-teal-600 border-b-2 border-teal-600" 
+                            : "text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        📸 Live Camera Capture
+                      </button>
                     </div>
 
-                    {/* Pre-packaged quick test photos (simulating active file selections) */}
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quick Select Resolved Proof Photo (For testing):</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {SIMULATED_AFTER_PHOTOS.map((sim, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => {
-                              setAfterPhotoUrl(sim.url);
-                              setCustomPhotoUrl("");
+                    {proofTab === "upload" ? (
+                      <div className="space-y-4 animate-in fade-in duration-200">
+                        {/* File Upload Box with Drag and Drop */}
+                        <div
+                          onDragOver={handleDragOver}
+                          onDragLeave={handleDragLeave}
+                          onDrop={handleDrop}
+                          className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all relative ${
+                            dragOver 
+                              ? "border-amber-500 bg-amber-50/20" 
+                              : afterPhotoUrl 
+                                ? "border-teal-400 bg-teal-50/10" 
+                                : "border-slate-200 hover:border-slate-350"
+                          }`}
+                        >
+                          <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${afterPhotoUrl ? "text-teal-600" : "text-slate-400"}`} />
+                          <p className="text-xs font-bold text-slate-700">Drag & Drop After Photo here</p>
+                          <p className="text-[10px] text-slate-400 mt-1">or click to browse from device</p>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleFileUpload}
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Pre-packaged quick test photos (simulating active file selections) */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quick Select Resolved Proof Photo (For testing):</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {SIMULATED_AFTER_PHOTOS.map((sim, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => {
+                                  setAfterPhotoUrl(sim.url);
+                                  setCustomPhotoUrl("");
+                                }}
+                                className={`p-2 rounded-xl text-left border text-[10px] transition-all cursor-pointer ${
+                                  afterPhotoUrl === sim.url 
+                                    ? "border-teal-500 bg-teal-50/40 text-teal-800 font-extrabold" 
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                <p className="truncate leading-tight font-bold">{sim.label}</p>
+                                <p className="text-[8px] text-slate-400 mt-0.5 line-clamp-1 font-normal">{sim.desc}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Custom URL Option */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Or Paste Custom Photo URL:</p>
+                          <input 
+                            type="url"
+                            placeholder="https://example.com/resolved-pavement.jpg"
+                            value={customPhotoUrl}
+                            onChange={(e) => {
+                              setCustomPhotoUrl(e.target.value);
+                              setAfterPhotoUrl("");
                             }}
-                            className={`p-2 rounded-xl text-left border text-[10px] transition-all cursor-pointer ${
-                              afterPhotoUrl === sim.url 
-                                ? "border-teal-500 bg-teal-50/40 text-teal-800 font-extrabold" 
-                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            <p className="truncate leading-tight font-bold">{sim.label}</p>
-                            <p className="text-[8px] text-slate-400 mt-0.5 line-clamp-1 font-normal">{sim.desc}</p>
-                          </button>
-                        ))}
+                            className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                          />
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="space-y-4 animate-in fade-in duration-200">
+                        {/* Camera feed or setup option */}
+                        {cameraActive ? (
+                          <div className="space-y-3">
+                            <div className="relative rounded-2xl overflow-hidden border bg-black aspect-video flex items-center justify-center">
+                              <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={capturePhoto}
+                                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs py-2 px-4 rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <Camera className="w-4 h-4" />
+                                Capture Photo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={stopCamera}
+                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs py-2 px-4 rounded-xl transition cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Option 1: Live Webcam Stream */}
+                            <div className="flex flex-col items-center justify-center border rounded-2xl p-5 text-center bg-white space-y-3">
+                              <Camera className="w-8 h-8 text-teal-600" />
+                              <div className="space-y-1">
+                                <h4 className="text-xs font-bold text-slate-800">Use Browser Webcam</h4>
+                                <p className="text-[10px] text-slate-400 leading-snug">Starts your computer webcam to capture the resolved scene live.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={startCamera}
+                                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-black text-[10px] py-2 px-3 rounded-lg shadow-sm cursor-pointer transition uppercase"
+                              >
+                                Start Live Camera
+                              </button>
+                            </div>
 
-                    {/* Custom URL Option */}
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Or Paste Custom Photo URL:</p>
-                      <input 
-                        type="url"
-                        placeholder="https://example.com/resolved-pavement.jpg"
-                        value={customPhotoUrl}
-                        onChange={(e) => {
-                          setCustomPhotoUrl(e.target.value);
-                          setAfterPhotoUrl("");
-                        }}
-                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
+                            {/* Option 2: Mobile Native Direct Capture */}
+                            <div className="flex flex-col items-center justify-center border rounded-2xl p-5 text-center bg-white space-y-3 relative">
+                              <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                <span className="font-black text-xs">M</span>
+                              </div>
+                              <div className="space-y-1">
+                                <h4 className="text-xs font-bold text-slate-800">Mobile Native Camera</h4>
+                                <p className="text-[10px] text-slate-400 leading-snug">For mobile users: directly trigger your device's default camera app.</p>
+                              </div>
+                              <div className="w-full relative">
+                                <button
+                                  type="button"
+                                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] py-2 px-3 rounded-lg shadow-sm transition uppercase cursor-pointer"
+                                >
+                                  Trigger Native Cam
+                                </button>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={handleFileUpload}
+                                  className="absolute inset-0 opacity-0 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {errorMsg && (
                       <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-1.5 font-bold">

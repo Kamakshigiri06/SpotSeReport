@@ -16,7 +16,7 @@ import CommunityFeed from "./components/CommunityFeed";
 import BountiesMarketplace from "./components/BountiesMarketplace";
 import AuthPortal from "./components/AuthPortal";
 import { auth } from "./firebase";
-import { signOut } from "firebase/auth";
+import { signOut, onAuthStateChanged } from "firebase/auth";
 import { 
   MapPin, Eye, Filter, RefreshCw, Layers, Grid, List, 
   Map, Trophy, User, ShieldAlert, Sparkles, Plus, CheckCircle, Flame, Star, ShieldCheck,
@@ -57,6 +57,8 @@ export default function App() {
   const [showFloatingChat, setShowFloatingChat] = useState(false);
   const [showRoleConfirmModal, setShowRoleConfirmModal] = useState(false);
   const [pendingRole, setPendingRole] = useState<"admin" | "citizen" | null>(null);
+  const [switchPassword, setSwitchPassword] = useState("");
+  const [switchPasswordError, setSwitchPasswordError] = useState("");
 
   const fetchActiveProfile = async () => {
     try {
@@ -126,8 +128,45 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchActiveProfile();
+    setLoadingAuth(true);
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        try {
+          const res = await fetch("/api/auth/firebase-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              full_name: fbUser.displayName,
+              avatar_url: fbUser.photoURL,
+              city: "Bengaluru"
+            })
+          });
+          if (res.ok) {
+            const profile = await res.json();
+            setCurrentProfile(profile);
+            if (profile.role === "admin") {
+              setActiveTab("admin");
+            } else {
+              setActiveTab("map-feed");
+            }
+          } else {
+            setCurrentProfile(null);
+          }
+        } catch (err) {
+          console.error("Firebase auth sync error:", err);
+          setCurrentProfile(null);
+        } finally {
+          setLoadingAuth(false);
+        }
+      } else {
+        await fetchActiveProfile();
+      }
+    });
+
     fetchAllProfilesList();
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -216,11 +255,17 @@ export default function App() {
     if (!currentProfile) return;
     const targetRole = currentProfile.role === "admin" ? "citizen" : "admin";
     setPendingRole(targetRole);
+    setSwitchPassword("");
+    setSwitchPasswordError("");
     setShowRoleConfirmModal(true);
   };
 
   const confirmRoleToggle = async () => {
     if (!currentProfile || !pendingRole) return;
+    if (pendingRole === "admin" && switchPassword !== "admin123") {
+      setSwitchPasswordError("Access Denied: Invalid Administrative Verification Key.");
+      return;
+    }
     try {
       const res = await fetch("/api/auth/role", {
         method: "POST",
@@ -235,12 +280,13 @@ export default function App() {
         } else {
           setActiveTab("map-feed");
         }
+        setShowRoleConfirmModal(false);
+        setPendingRole(null);
+        setSwitchPassword("");
+        setSwitchPasswordError("");
       }
     } catch (err) {
       console.error(err);
-    } finally {
-      setShowRoleConfirmModal(false);
-      setPendingRole(null);
     }
   };
 
@@ -296,11 +342,23 @@ export default function App() {
   };
 
   // Wait for initial profile load
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans">
+        <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-xs font-black text-slate-500 tracking-wider uppercase">Initializing SpotseReport Portal...</p>
+      </div>
+    );
+  }
+
   if (!currentProfile) {
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6 font-sans">
-        <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-slate-500 tracking-wide uppercase">Initializing SpotseReport Portal...</p>
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
+        {/* Background blobs */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-rose-400/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <AuthPortal onAuthSuccess={(profile) => setCurrentProfile(profile)} />
       </div>
     );
   }
@@ -429,6 +487,15 @@ export default function App() {
                         </div>
                       </button>
                     ))}
+                    <div className="pt-1 bg-slate-950/20">
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-left px-2.5 py-2 hover:bg-rose-950/50 hover:text-rose-400 rounded-lg text-xs font-extrabold text-slate-400 transition flex items-center gap-2 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        Sign Out Portal
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -608,6 +675,15 @@ export default function App() {
                         </div>
                       </button>
                     ))}
+                    <div className="pt-1 bg-slate-50">
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-left px-2.5 py-2 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-xs font-extrabold text-slate-500 transition flex items-center gap-2 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        Sign Out Portal
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1236,6 +1312,29 @@ export default function App() {
                 </span>
               )}
             </p>
+
+            {pendingRole === "admin" && (
+              <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Enter Administrative Verification Key:
+                </label>
+                <input
+                  type="password"
+                  value={switchPassword}
+                  onChange={(e) => {
+                    setSwitchPassword(e.target.value);
+                    setSwitchPasswordError("");
+                  }}
+                  placeholder="Type admin123 to verify"
+                  className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none focus:bg-white transition font-sans"
+                />
+                {switchPasswordError && (
+                  <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 animate-pulse">
+                    ⚠️ {switchPasswordError}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
