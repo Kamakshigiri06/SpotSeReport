@@ -3,6 +3,7 @@ import { Report, Comment, StatusTimeline } from "../types";
 import { StatusBadge, SeverityBadge } from "./StatusBadge";
 import { getCategoryIcon, getSLARemaining } from "./ReportCard";
 import { motion, AnimatePresence } from "motion/react";
+import AILocationAssistant from "./AILocationAssistant";
 import { 
   ThumbsUp, MessageSquare, MapPin, Calendar, Clock, 
   Send, ShieldAlert, CheckCircle, Hourglass, Star, User, Info, ArrowLeft,
@@ -525,6 +526,14 @@ export default function ReportDetail({ reportId, currentUserId, onBack, onUpdate
         {/* Right Column: Live Status Tracking & Timeline */}
         <div className="space-y-6">
           
+          {/* AI Maps Grounded Assistant */}
+          <AILocationAssistant
+            reportId={report.id}
+            address={report.address}
+            category={report.category}
+            city={report.city}
+          />
+
           {/* Timeline Tracking Block */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-6">
             <div>

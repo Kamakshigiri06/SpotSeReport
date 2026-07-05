@@ -866,9 +866,12 @@ app.post("/api/auth/profile", (req, res) => {
 });
 
 app.post("/api/auth/role", (req, res) => {
-  const { role } = req.body;
+  const { role, password } = req.body;
   if (role !== "admin" && role !== "citizen") {
     return res.status(400).json({ error: "Invalid role specified." });
+  }
+  if (role === "admin" && password !== "admin123") {
+    return res.status(403).json({ error: "Access Denied: Invalid Administrative Verification Key." });
   }
   const db = loadDB();
   const user = db.users.find((u: any) => u.id === currentUserSessionId);
@@ -1410,37 +1413,124 @@ app.post("/api/reports/:id/rate", (req, res) => {
   res.json({ success: true, citizen_rating: rating });
 });
 
-// Gamification: Arcade XP reward endpoint
-app.post("/api/arcade/reward", (req, res) => {
+// AI Location & Support Assistant using Google Maps Grounding via Gemini 3.5-flash
+app.post("/api/reports/:id/ai-query", async (req, res) => {
+  const { id } = req.params;
+  const { query } = req.body;
+
+  if (!query || typeof query !== "string") {
+    return res.status(400).json({ error: "Query is required" });
+  }
+
   const db = loadDB();
-  const user = db.users.find((u: any) => u.id === currentUserSessionId);
-  if (!user) {
-    return res.status(404).json({ error: "User session not found" });
+  const report = db.reports.find((r: any) => r.id === id);
+  if (!report) {
+    return res.status(404).json({ error: "Report not found" });
   }
 
-  const { xp } = req.body;
-  if (!xp || typeof xp !== "number" || xp <= 0) {
-    return res.status(400).json({ error: "Invalid XP reward amount" });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    const qLower = query.toLowerCase();
+    let reply = `[Offline Mode] Here is information based on the report coordinates at Lat: ${report.latitude.toFixed(5)}, Lng: ${report.longitude.toFixed(5)} (${report.address}):\n\n`;
+    let sources: any[] = [];
+
+    if (qLower.includes("waste") || qLower.includes("garbage") || qLower.includes("recycle")) {
+      reply += `### Recommended Civic Infrastructure:\n` +
+               `1. **Dry Waste Collection Centre (DWCC)** - Located approximately 1.4 km from this spot. Helpful for disposing of dry recyclable waste (cardboard, paper, clean plastics).\n` +
+               `2. **Zone Ward Office - Waste Division** - Situated about 2.2 km away. You can submit formal complaints regarding irregular garbage disposal trucks here.\n\n` +
+               `*Tip: Ensure your waste is properly segregated before taking it to the centre to avoid refusal.*`;
+      sources = [
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=dry+waste+collection+centre", title: "Dry Waste Collection Centre" } },
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=ward+office", title: "Local Ward Office" } }
+      ];
+    } else if (qLower.includes("pothole") || qLower.includes("road") || qLower.includes("street")) {
+      reply += `### Recommended Road Safety Support:\n` +
+               `1. **Public Works Department (PWD) Subdivision Office** - Located 1.8 km away. Responsible for primary road resurfacing and major repairs in this area.\n` +
+               `2. **Traffic Police Control Room** - Situated 3.0 km away. For safety hazards or broken streetlights causing traffic congestion, you can contact their control room.\n\n` +
+               `*Tip: Use the 'Generate Formal Letter' option to request formal inspection from the Ward Engineer.*`;
+      sources = [
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=pwd+office", title: "PWD Subdivision Office" } },
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=traffic+police+control+room", title: "Traffic Police Office" } }
+      ];
+    } else {
+      reply += `### Nearest Public & Administrative Utilities:\n` +
+               `1. **Municipal Ward Office** - Located 1.5 km away at the central administrative sector. Deals with citizen queries, water supply issues, and local layout permissions.\n` +
+               `2. **Nearest Civic Hospital & First-Aid Center** - Located 2.5 km away for any hazardous emergencies.\n\n` +
+               `*(Grounded simulation based on active coordinates: ${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)})*`;
+      sources = [
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=municipal+ward+office", title: "Municipal Ward Office" } },
+        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=hospital", title: "Civic Hospital" } }
+      ];
+    }
+
+    return res.json({ text: reply, sources });
   }
 
-  // Cap max reward per session to prevent excessive exploit
-  const finalXp = Math.min(xp, 150); 
-  
-  const xpResult = awardXP(user.id, finalXp, db);
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build"
+        }
+      }
+    });
 
-  db.notifications.push({
-    id: "not_" + Math.random().toString(36).substr(2, 9),
-    user_id: user.id,
-    type: "system",
-    title: `Arcade Reward! +${finalXp} XP 🎮`,
-    message: `Splendid gameplay in the Eco-Arcade! Your environmental awareness points have upgraded your profile status.`,
-    read: false,
-    created_at: new Date().toISOString()
-  });
+    const reportLatLng = {
+      latitude: Number(report.latitude),
+      longitude: Number(report.longitude)
+    };
 
-  saveDB(db);
-  res.json({ success: true, new_xp: xpResult.newXp, badge: xpResult.newBadge, upgraded: xpResult.upgraded });
+    const systemInstruction = `You are a highly helpful municipal and geographic AI assistant for SpotSeReport. 
+You are grounded with Google Maps data near the coordinates of a reported civic issue (${report.address} at Lat: ${reportLatLng.latitude}, Lng: ${reportLatLng.longitude}).
+Your goal is to answer citizen questions about nearby civic infrastructure, ward offices, public waste stations, PWD centers, or local services relative to this issue.
+Provide a clear, brief, and structured response with helpful tips. Mention the names of actual facilities or areas in the city (${report.city}) that you find.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: query,
+      config: {
+        systemInstruction,
+        tools: [{ googleMaps: {} }],
+        toolConfig: {
+          retrievalConfig: {
+            latLng: reportLatLng
+          }
+        }
+      }
+    });
+
+    const responseText = response.text || "No response received from the AI Assistant.";
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    
+    const sources: any[] = [];
+    chunks.forEach((chunk: any) => {
+      if (chunk.web) {
+        sources.push({
+          web: {
+            uri: chunk.web.uri,
+            title: chunk.web.title || "Web Link"
+          }
+        });
+      }
+      if (chunk.maps) {
+        sources.push({
+          maps: {
+            uri: chunk.maps.uri,
+            title: chunk.maps.title || "Google Maps Location"
+          }
+        });
+      }
+    });
+
+    res.json({ text: responseText, sources });
+  } catch (err: any) {
+    console.error("AI Maps Grounding Error:", err);
+    res.status(500).json({ error: err.message || "Failed to process AI query" });
+  }
 });
+
+// Gamification: Arcade XP reward endpoint removed
 
 // Bounties: Fetch all bounties
 app.get("/api/bounties", (req, res) => {
@@ -1557,56 +1647,7 @@ app.post("/api/bounties/:id/complete", (req, res) => {
   });
 });
 
-// Gamification: Eco-Buddy Gemini Chat endpoint
-app.post("/api/arcade/chat", async (req, res) => {
-  const { history } = req.body;
-  if (!history || !Array.isArray(history)) {
-    return res.status(400).json({ error: "Invalid conversation history" });
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-    // Return a realistic mock response from Eco-Buddy so the app is fully functional offline
-    const lastUserMsg = history[history.length - 1]?.parts?.[0]?.text || "";
-    let reply = "Hi there! Eco-Buddy here. 🌟 I'm currently running in offline mode since the Gemini API key is not configured in the workspace settings. Here is a helpful tip: Remember to always segregate wet kitchen waste (green bin) and dry recyclable items like cardboard and plastic bottles (blue bin) at home!";
-    
-    const query = lastUserMsg.toLowerCase();
-    if (query.includes("compost") || query.includes("organic") || query.includes("food")) {
-      reply = "Composting is great! 🌟 Organic wet kitchen waste (banana peels, tea bags, leftover food) decomposes naturally into rich soil nutrients. Put it in the Green Bin!";
-    } else if (query.includes("plastic") || query.includes("bottle") || query.includes("paper") || query.includes("metal")) {
-      reply = "Dry recyclables like plastics, cardboard, and metals should go into the Blue Bin. A single plastic bottle can take up to 450 years to break down in a landfill, so recycling it makes a huge difference! 🌟";
-    } else if (query.includes("battery") || query.includes("phone") || query.includes("computer")) {
-      reply = "E-waste (batteries, charger cords, old electronics) contains heavy metals that poison groundwater! 🚨 Please collect them in a separate box and drop them at an authorized electronic waste center, never in the general bin!";
-    } else if (query.includes("medicine") || query.includes("chemical") || query.includes("paint")) {
-      reply = "Household hazardous waste (expired medicines, strong chemicals, aerosol spray cans) should be handled with care. ☣️ Dispose of them separately to keep sanitation workers safe!";
-    }
-    return res.json({ text: reply });
-  }
-
-  try {
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: history,
-      config: {
-        systemInstruction: "You are 'Eco-Buddy', an enthusiastic, friendly municipal cleanliness and recycling AI expert for Indian cities. Your mission is to educate citizens, answer their queries about proper garbage segregation, composting, environmental awareness, and civic rules with positive encouragement. Keep your tone cheerful, polite, and full of practical tips. Always suggest the correct color-coded bin (Green for organic wet waste, Blue for dry recyclables, Yellow/Black/Red boxes for hazardous or electronic waste) when asked how to dispose of items. If someone asks a great environmental question, add a little star emoji and praise them!",
-      }
-    });
-
-    res.json({ text: response.text });
-  } catch (err: any) {
-    console.error("Gemini Chatbot Error:", err);
-    res.status(500).json({ error: err.message || "Failed to communicate with Gemini" });
-  }
-});
+// Gamification: Eco-Buddy Gemini Chat endpoint removed
 
 // AI formal text auto-translation / polish endpoint
 app.post("/api/translate-formal", async (req, res) => {
@@ -1832,6 +1873,10 @@ app.post("/api/admin/reports/:id/status", (req, res) => {
 // Admin stats
 app.get("/api/admin/stats", (req, res) => {
   const db = loadDB();
+  const adminUser = db.users.find((u: any) => u.id === currentUserSessionId);
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).json({ error: "Unauthorized. Admin privileges required." });
+  }
   const reports = db.reports;
 
   const total = reports.length;

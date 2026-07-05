@@ -7,8 +7,6 @@ import NewReportForm from "./components/NewReportForm";
 import ReportDetail from "./components/ReportDetail";
 import Dashboard from "./components/Dashboard";
 import UserReportHistory from "./components/UserReportHistory";
-import CleanlinessGame from "./components/CleanlinessGame";
-import EcoBuddyChat from "./components/EcoBuddyChat";
 import AdminPanel from "./components/AdminPanel";
 import NotificationList from "./components/NotificationList";
 import XPBar, { getBadgeDetails } from "./components/XPBar";
@@ -25,7 +23,7 @@ import {
 } from "lucide-react";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"map-feed" | "community" | "history" | "arcade" | "dashboard" | "admin" | "admin-map" | "bounties">("map-feed");
+  const [activeTab, setActiveTab] = useState<"map-feed" | "community" | "history" | "dashboard" | "admin" | "admin-map" | "bounties">("map-feed");
   const [viewMode, setViewMode] = useState<"map" | "feed">("map");
 
   // Simulated Connection Mode
@@ -270,7 +268,7 @@ export default function App() {
       const res = await fetch("/api/auth/role", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: pendingRole })
+        body: JSON.stringify({ role: pendingRole, password: switchPassword })
       });
       if (res.ok) {
         const data = await res.json();
@@ -566,16 +564,6 @@ export default function App() {
                 📋 My Reports
               </button>
               <button
-                onClick={() => { setActiveTab("arcade"); setActiveReportId(null); }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold tracking-wide transition ${
-                  activeTab === "arcade" 
-                    ? "bg-teal-50 text-teal-700 font-extrabold" 
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                }`}
-              >
-                🎮 Eco Arcade
-              </button>
-              <button
                 onClick={() => { setActiveTab("bounties"); setActiveReportId(null); }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold tracking-wide transition ${
                   activeTab === "bounties" 
@@ -735,7 +723,6 @@ export default function App() {
           <button onClick={() => { setActiveTab("map-feed"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "map-feed" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>🗺️ Map</button>
           <button onClick={() => { setActiveTab("community"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "community" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>👥 Board</button>
           <button onClick={() => { setActiveTab("history"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "history" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>📋 Reports</button>
-          <button onClick={() => { setActiveTab("arcade"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "arcade" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>🎮 Arcade</button>
           <button onClick={() => { setActiveTab("bounties"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "bounties" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>💰 Bounties</button>
           <button onClick={() => { setActiveTab("dashboard"); setActiveReportId(null); }} className={`px-2.5 py-1.5 rounded-lg shrink-0 ${activeTab === "dashboard" ? "bg-teal-50 text-teal-700" : "text-slate-600"}`}>👤 Profile</button>
         </div>
@@ -1186,17 +1173,6 @@ export default function App() {
                   />
                 )}
 
-                {/* TAB 2.5: ECO ARCADE MINI-GAMES FOR CITIZEN AWARENESS */}
-                {activeTab === "arcade" && (
-                  <CleanlinessGame 
-                    currentUserId={currentProfile.id}
-                    onRewardXP={() => {
-                      fetchActiveProfile();
-                      setNotifTrigger(prev => prev + 1);
-                    }}
-                  />
-                )}
-
                 {/* TAB 2.7: FIX-IT BOUNTIES MARKETPLACE */}
                 {activeTab === "bounties" && (
                   <BountiesMarketplace 
@@ -1240,46 +1216,6 @@ export default function App() {
           </span>
         </div>
       </footer>
-
-      {/* FLOATING ECO-BUDDY AI CHATBOT IN EVERY INTERFACE */}
-      {currentProfile && (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-          <div
-            className={`w-[360px] sm:w-[420px] max-w-[calc(100vw-2rem)] shadow-2xl overflow-hidden rounded-3xl bg-white transition-all duration-300 transform origin-bottom-right ${
-              showFloatingChat 
-                ? "opacity-100 scale-100 translate-y-0 pointer-events-auto" 
-                : "opacity-0 scale-95 translate-y-4 pointer-events-none h-0"
-            }`}
-          >
-            <EcoBuddyChat
-              currentUserId={currentProfile.id}
-              onRewardXP={() => {
-                fetchActiveProfile();
-                setNotifTrigger(prev => prev + 1);
-              }}
-            />
-          </div>
-
-          <button
-            onClick={() => setShowFloatingChat(prev => !prev)}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl active:scale-95 transition-all duration-300 cursor-pointer ${
-              showFloatingChat 
-                ? "bg-slate-800 text-white hover:bg-slate-900" 
-                : "bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-105"
-            }`}
-            title="Chat with Eco-Buddy AI"
-          >
-            {showFloatingChat ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <div className="relative">
-                <Bot className="w-6 h-6 animate-pulse" />
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-bounce" />
-              </div>
-            )}
-          </button>
-        </div>
-      )}
 
       {/* ROLE SWITCH CONFIRMATION MODAL */}
       {showRoleConfirmModal && (
