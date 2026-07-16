@@ -212,11 +212,11 @@ graph TD
 
 ## 📸 Screenshots
 
-![1](<img width="1572" height="935" alt="image" src="https://github.com/user-attachments/assets/c56f3776-ecca-4db7-87ba-91e71ff255f3" />)
-![2](<img width="1662" height="898" alt="image" src="https://github.com/user-attachments/assets/c67ca9f2-7547-4f48-a0d2-9de8ed346125" />)
-![3](<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/5a08e988-39b5-4928-af28-00ec82290ce1" />)
-![4](<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/87b6cb3e-03a0-461b-ae48-f2d8f4926e67" />)
-![5](<img width="1590" height="908" alt="image" src="https://github.com/user-attachments/assets/39ad4b2d-42d7-4bfa-818f-b70c1831e90d" />)
+<img width="1572" height="935" alt="image" src="https://github.com/user-attachments/assets/c56f3776-ecca-4db7-87ba-91e71ff255f3" />
+<img width="1662" height="898" alt="image" src="https://github.com/user-attachments/assets/c67ca9f2-7547-4f48-a0d2-9de8ed346125" />
+<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/5a08e988-39b5-4928-af28-00ec82290ce1" />
+<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/87b6cb3e-03a0-461b-ae48-f2d8f4926e67" />
+<img width="1590" height="908" alt="image" src="https://github.com/user-attachments/assets/39ad4b2d-42d7-4bfa-818f-b70c1831e90d" />
 
 
 
