@@ -209,53 +209,17 @@ graph TD
 
 ---
 
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js 18+ and npm
-- A Firebase project with **Firestore** and **Authentication** enabled
-- A Google Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-
-### Installation
-```bash
-git clone https://github.com/<your-username>/spotsereport.git
-cd spotsereport
-npm install
-```
-
-### Environment Variables
-Create a `.env` file in the project root:
-```env
-# Google Gemini
-GEMINI_API_KEY=your_gemini_api_key
-
-# Firebase
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-```
-
-### Run locally
-```bash
-npm run dev       # Vite frontend dev server
-npm run server    # Express backend (tsx/esbuild)
-```
-
-### Build for production
-```bash
-npm run build     # Bundles backend to dist/server.cjs and builds the frontend
-```
-
-> Command names above follow standard Vite/Express conventions — adjust to match your actual `package.json` scripts if they differ.
-
----
 
 ## 📸 Screenshots
 
-*Add screenshots or a short demo GIF here — the map dashboard, the live capture flow, and the Cleanliness Arcade are good ones to showcase.*
+![1](<img width="1572" height="935" alt="image" src="https://github.com/user-attachments/assets/c56f3776-ecca-4db7-87ba-91e71ff255f3" />)
+![2](<img width="1662" height="898" alt="image" src="https://github.com/user-attachments/assets/c67ca9f2-7547-4f48-a0d2-9de8ed346125" />)
+![3](<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/5a08e988-39b5-4928-af28-00ec82290ce1" />)
+![4](<img width="1638" height="922" alt="image" src="https://github.com/user-attachments/assets/87b6cb3e-03a0-461b-ae48-f2d8f4926e67" />)
+![5](<img width="1590" height="908" alt="image" src="https://github.com/user-attachments/assets/39ad4b2d-42d7-4bfa-818f-b70c1831e90d" />)
+
+
+
 
 ---
 
@@ -265,11 +229,6 @@ Contributions, issues, and feature requests are welcome. Feel free to check the 
 
 ---
 
-## 📄 License
-
-No license has been specified yet. Add one (e.g. [MIT](https://choosealicense.com/licenses/mit/)) before publishing this repository publicly.
-
----
 
 ## 🙌 Team
 
