@@ -234,8 +234,8 @@ Contributions, issues, and feature requests are welcome. Feel free to check the 
 
 Built with ❤️ for communities everywhere.
 
-- Your Name — Role
-- Add your teammates here
+Kamakshi Giri
+& SpotSeReportFamily
 
 ---
 
