@@ -6,3 +6,26 @@
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
+@keyframes wave-bounce {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-wave-bar-1 {
+  animation: wave-bounce 0.8s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.animate-wave-bar-2 {
+  animation: wave-bounce 0.8s ease-in-out infinite 0.15s;
+  transform-origin: bottom;
+}
+.animate-wave-bar-3 {
+  animation: wave-bounce 0.8s ease-in-out infinite 0.3s;
+  transform-origin: bottom;
+}
+.animate-wave-bar-4 {
+  animation: wave-bounce 0.8s ease-in-out infinite 0.45s;
+  transform-origin: bottom;
+}
+

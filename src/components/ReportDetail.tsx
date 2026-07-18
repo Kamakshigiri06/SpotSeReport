@@ -7,7 +7,7 @@ import AILocationAssistant from "./AILocationAssistant";
 import { 
   ThumbsUp, MessageSquare, MapPin, Calendar, Clock, 
   Send, ShieldAlert, CheckCircle, Hourglass, Star, User, Info, ArrowLeft,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Brain, Sparkles, Image as ImageIcon, Wand2, RefreshCw
 } from "lucide-react";
 
 interface ReportDetailProps {
@@ -24,6 +24,18 @@ export default function ReportDetail({ reportId, currentUserId, onBack, onUpdate
   const [hasUpvoted, setHasUpvoted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Expert Plan (High-Thinking)
+  const [expertPlan, setExpertPlan] = useState<string>("");
+  const [loadingPlan, setLoadingPlan] = useState<boolean>(false);
+  const [planError, setPlanError] = useState<string>("");
+
+  // AI Simulation Image Generator
+  const [simPrompt, setSimPrompt] = useState<string>("");
+  const [simAspectRatio, setSimAspectRatio] = useState<string>("16:9");
+  const [simImageUrl, setSimImageUrl] = useState<string>("");
+  const [generatingSim, setGeneratingSim] = useState<boolean>(false);
+  const [simError, setSimError] = useState<string>("");
 
   // New Comment state
   const [newComment, setNewComment] = useState("");
@@ -89,6 +101,56 @@ export default function ReportDetail({ reportId, currentUserId, onBack, onUpdate
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleRequestExpertPlan = async () => {
+    try {
+      setLoadingPlan(true);
+      setPlanError("");
+      const res = await fetch(`/api/reports/${reportId}/expert-plan`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate plan");
+      setExpertPlan(data.plan);
+    } catch (err: any) {
+      console.error(err);
+      setPlanError(err.message || "Could not retrieve expert plan.");
+    } finally {
+      setLoadingPlan(false);
+    }
+  };
+
+  const handleGenerateSimulation = async () => {
+    if (!simPrompt.trim()) return;
+    try {
+      setGeneratingSim(true);
+      setSimError("");
+      const res = await fetch(`/api/generate-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: simPrompt,
+          aspectRatio: simAspectRatio,
+          existingImageBase64: report?.photo_urls?.[0] || ""
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate simulation image.");
+      setSimImageUrl(data.imageUrl);
+      if (report && data.imageUrl) {
+        setReport({
+          ...report,
+          photo_urls: [...report.photo_urls, data.imageUrl]
+        });
+        setActivePhotoIdx(report.photo_urls.length - 1);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSimError(err.message || "Failed to generate visual simulation.");
+    } finally {
+      setGeneratingSim(false);
     }
   };
 
@@ -474,6 +536,138 @@ export default function ReportDetail({ reportId, currentUserId, onBack, onUpdate
               )}
             </div>
           )}
+
+          {/* 🧠 EXPERT RESOLUTION PLAN (HIGH-THINKING ENGINE) */}
+          <div className="bg-slate-900 text-slate-100 rounded-3xl border border-slate-800 shadow-xl p-6 space-y-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                  <Brain className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                    Expert Civil Resolution Blueprint
+                    <span className="text-[9px] bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded border border-rose-500/30 font-black uppercase">Deep Thinking</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Execute advanced multi-agency engineering blueprints using gemini-3.1-pro-preview</p>
+                </div>
+              </div>
+              {!expertPlan && !loadingPlan && (
+                <button
+                  onClick={handleRequestExpertPlan}
+                  className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow cursor-pointer flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Generate
+                </button>
+              )}
+            </div>
+
+            {loadingPlan && (
+              <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                <div className="w-8 h-8 border-4 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs font-semibold text-slate-400 animate-pulse">Engaging deep-thinking engine, formulating blueprint...</p>
+              </div>
+            )}
+
+            {planError && (
+              <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-300">
+                {planError}
+              </div>
+            )}
+
+            {expertPlan && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="bg-slate-950 rounded-2xl border border-slate-800 p-5 text-xs text-slate-300 leading-relaxed font-sans max-h-96 overflow-y-auto whitespace-pre-wrap">
+                  {expertPlan}
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-500">
+                  <span>Engine: gemini-3.1-pro-preview (Thinking: HIGH)</span>
+                  <button 
+                    onClick={handleRequestExpertPlan}
+                    className="text-teal-400 hover:text-teal-300 font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Re-Generate Plan
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 🎨 AI IMAGE SIMULATOR & CONCEPTUAL SCHEMATIC GENERATOR */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-6">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                <ImageIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  AI Repair Simulation Studio
+                  <span className="text-[9px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 font-extrabold uppercase">IMAGEN 3</span>
+                </h3>
+                <p className="text-[10.5px] text-slate-400 mt-0.5">Visualize resolutions or generate schematic repairs with gemini-3.1-flash-image-preview</p>
+              </div>
+            </div>
+
+            <div className="space-y-3.5">
+              <textarea
+                value={simPrompt}
+                onChange={(e) => setSimPrompt(e.target.value)}
+                placeholder="Describe the desired visual outcome (e.g. 'clean new asphalt road seamlessly covering the pothole with bright new yellow lane markers, sunny morning')"
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3.5 focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:outline-none leading-relaxed"
+                rows={3}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Aspect Ratio:</span>
+                  <select
+                    value={simAspectRatio}
+                    onChange={(e) => setSimAspectRatio(e.target.value)}
+                    className="text-xs bg-slate-50 border rounded-xl px-2 py-1 focus:outline-none"
+                  >
+                    <option value="16:9">16:9 Landscape</option>
+                    <option value="4:3">4:3 Desktop</option>
+                    <option value="1:1">1:1 Square</option>
+                    <option value="9:16">9:16 Portrait</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={handleGenerateSimulation}
+                  disabled={generatingSim || !simPrompt.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  {generatingSim ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                      Rendering Simulation...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-3.5 h-3.5" />
+                      Generate Simulation
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {simError && (
+                <div className="bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl p-3 text-xs leading-relaxed">
+                  {simError}
+                </div>
+              )}
+
+              {simImageUrl && (
+                <div className="space-y-2 pt-2 animate-in fade-in duration-300">
+                  <span className="text-[10px] font-black text-indigo-600 bg-indigo-50/70 border border-indigo-100 px-2.5 py-1 rounded-lg inline-block uppercase">Generated Resolution Visual:</span>
+                  <div className="rounded-2xl border overflow-hidden bg-slate-50 relative group">
+                    <img src={simImageUrl} alt="Simulation outcome" className="w-full h-auto object-cover" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Comments Section */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-6">

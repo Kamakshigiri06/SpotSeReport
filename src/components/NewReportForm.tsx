@@ -42,6 +42,19 @@ const ISSUE_PRESETS = [
   }
 ];
 
+export const speechLanguages = [
+  { code: "en-IN", name: "English (India)" },
+  { code: "hi-IN", name: "Hindi (हिंदी)" },
+  { code: "kn-IN", name: "Kannada (ಕನ್ನಡ)" },
+  { code: "ta-IN", name: "Tamil (தமிழ்)" },
+  { code: "te-IN", name: "Telugu (తెలుగు)" },
+  { code: "mr-IN", name: "Marathi (मराठी)" },
+  { code: "bn-IN", name: "Bengali (বাংলা)" },
+  { code: "gu-IN", name: "Gujarati (ગુજરાતી)" },
+  { code: "en-US", name: "English (US)" },
+  { code: "es-ES", name: "Spanish (Español)" },
+];
+
 export default function NewReportForm({ onSuccess, onCancel, isOffline = false, onQueueOffline }: NewReportFormProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -52,6 +65,32 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<IssueCategory>("other");
   const [severity, setSeverity] = useState<IssueSeverity>("medium");
+  const [suggestingDetails, setSuggestingDetails] = useState(false);
+
+  const handleSuggestDetails = async () => {
+    if (!description.trim()) {
+      setError("Please write some description context first to get auto-suggestions!");
+      return;
+    }
+    try {
+      setSuggestingDetails(true);
+      setError(null);
+      const res = await fetch("/api/suggest-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch suggestions");
+      if (data.title) setTitle(data.title);
+      if (data.category) setCategory(data.category);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to generate title and category suggestions.");
+    } finally {
+      setSuggestingDetails(false);
+    }
+  };
   
   // Photo states
   const [photoUrl, setPhotoUrl] = useState(ISSUE_PRESETS[0].imageUrl);
@@ -228,6 +267,7 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
   const [isListening, setIsListening] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [detectedLang, setDetectedLang] = useState<string | null>(null);
+  const [speechLanguage, setSpeechLanguage] = useState("en-IN");
   const recognitionRef = React.useRef<any>(null);
 
   React.useEffect(() => {
@@ -250,7 +290,7 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
       const rec = new SpeechRecognition();
       rec.continuous = true;
       rec.interimResults = false;
-      rec.lang = "en-IN"; // Good default supporting Indian English / regional hints
+      rec.lang = speechLanguage; // Dynamic language support!
 
       rec.onstart = () => {
         setIsListening(true);
@@ -266,7 +306,11 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
       rec.onerror = (event: any) => {
         console.error("Speech Recognition Error:", event.error);
         if (event.error !== "no-speech") {
-          setError(`Speech recognition error: ${event.error}`);
+          if (event.error === "not-allowed") {
+            setError("Microphone blocked (not-allowed). Please ensure microphone permissions are granted in your browser, or click the 'Open in New Tab' button in the top right of the preview to bypass iframe policy restrictions.");
+          } else {
+            setError(`Speech recognition error: ${event.error}`);
+          }
         }
         setIsListening(false);
       };
@@ -1073,7 +1117,29 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
             <div className="space-y-4">
               {/* Title input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 block">Issue Title:</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-slate-700 block">Issue Title:</label>
+                  {description.trim() && (
+                    <button
+                      type="button"
+                      onClick={handleSuggestDetails}
+                      disabled={suggestingDetails}
+                      className="text-[10px] font-black text-indigo-700 hover:text-indigo-800 bg-indigo-50 border border-indigo-150 px-2 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition"
+                    >
+                      {suggestingDetails ? (
+                        <>
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                          Suggesting...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-2.5 h-2.5 animate-indigo-400" />
+                          AI Auto-Fill (Lite)
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   placeholder="e.g., Deep asphalt pothole, Overflowing garbage dump"
@@ -1091,9 +1157,15 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
                     Detailed Context (Optional)
                   </label>
                   {isListening && (
-                    <span className="flex items-center gap-1.5 text-[10px] bg-rose-50 border border-rose-100 text-rose-600 px-2 py-0.5 rounded-md font-bold animate-pulse">
-                      <span className="w-2.5 h-2.5 bg-rose-600 rounded-full animate-ping shrink-0" />
+                    <span className="flex items-center gap-1.5 text-[10px] bg-rose-50 border border-rose-100 text-rose-600 px-2 py-0.5 rounded-md font-bold">
+                      <span className="w-1.5 h-1.5 bg-rose-600 rounded-full animate-ping shrink-0" />
                       Live Microphone Active
+                      <div className="flex items-end gap-0.5 h-2.5 ml-1">
+                        <div className="w-0.5 bg-rose-500 rounded-full animate-wave-bar-1" style={{ height: "100%" }} />
+                        <div className="w-0.5 bg-rose-500 rounded-full animate-wave-bar-2" style={{ height: "60%" }} />
+                        <div className="w-0.5 bg-rose-500 rounded-full animate-wave-bar-3" style={{ height: "80%" }} />
+                        <div className="w-0.5 bg-rose-500 rounded-full animate-wave-bar-4" style={{ height: "40%" }} />
+                      </div>
                     </span>
                   )}
                   {isTranslating && (
@@ -1143,6 +1215,19 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
                         </>
                       )}
                     </button>
+
+                    <select
+                      value={speechLanguage}
+                      onChange={(e) => setSpeechLanguage(e.target.value)}
+                      disabled={isListening}
+                      className="text-[11px] font-bold bg-white text-slate-700 border border-slate-200 rounded-xl px-2.5 py-2 focus:ring-1 focus:ring-teal-500 focus:outline-none transition-all duration-150 disabled:bg-slate-50 disabled:text-slate-400 cursor-pointer"
+                    >
+                      {speechLanguages.map((lang) => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.name}
+                        </option>
+                      ))}
+                    </select>
 
                     <button
                       type="button"
@@ -1217,7 +1302,7 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               <button
                 type="button"
                 onClick={startAITriage}
-                className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white rounded-xl text-sm font-semibold inline-flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                className="px-6 py-2.5 bg-gradient-to-r from-teal-600 via-teal-500 to-emerald-600 hover:from-teal-500 hover:via-teal-400 hover:to-emerald-500 text-white rounded-xl text-sm font-semibold inline-flex items-center gap-1.5 shadow-md shadow-teal-500/10 hover:shadow-teal-500/20 active:scale-95 transition-all cursor-pointer border border-teal-400/20"
               >
                 <Sparkles className="w-4 h-4 animate-pulse" />
                 Analyze with Gemini AI

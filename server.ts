@@ -3,7 +3,8 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
+import { WebSocketServer } from "ws";
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { 
@@ -1440,8 +1441,8 @@ app.post("/api/reports/:id/ai-query", async (req, res) => {
                `2. **Zone Ward Office - Waste Division** - Situated about 2.2 km away. You can submit formal complaints regarding irregular garbage disposal trucks here.\n\n` +
                `*Tip: Ensure your waste is properly segregated before taking it to the centre to avoid refusal.*`;
       sources = [
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=dry+waste+collection+centre", title: "Dry Waste Collection Centre" } },
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=ward+office", title: "Local Ward Office" } }
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=dry+waste+collection+centre+${encodeURIComponent(report.city)}`, title: "Dry Waste Collection Centre" } },
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=ward+office+${encodeURIComponent(report.city)}`, title: "Local Ward Office" } }
       ];
     } else if (qLower.includes("pothole") || qLower.includes("road") || qLower.includes("street")) {
       reply += `### Recommended Road Safety Support:\n` +
@@ -1449,8 +1450,8 @@ app.post("/api/reports/:id/ai-query", async (req, res) => {
                `2. **Traffic Police Control Room** - Situated 3.0 km away. For safety hazards or broken streetlights causing traffic congestion, you can contact their control room.\n\n` +
                `*Tip: Use the 'Generate Formal Letter' option to request formal inspection from the Ward Engineer.*`;
       sources = [
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=pwd+office", title: "PWD Subdivision Office" } },
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=traffic+police+control+room", title: "Traffic Police Office" } }
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=pwd+office+${encodeURIComponent(report.city)}`, title: "PWD Subdivision Office" } },
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=traffic+police+control+room+${encodeURIComponent(report.city)}`, title: "Traffic Police Office" } }
       ];
     } else {
       reply += `### Nearest Public & Administrative Utilities:\n` +
@@ -1458,8 +1459,8 @@ app.post("/api/reports/:id/ai-query", async (req, res) => {
                `2. **Nearest Civic Hospital & First-Aid Center** - Located 2.5 km away for any hazardous emergencies.\n\n` +
                `*(Grounded simulation based on active coordinates: ${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)})*`;
       sources = [
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=municipal+ward+office", title: "Municipal Ward Office" } },
-        { maps: { uri: "https://www.google.com/maps/search/?api=1&query=hospital", title: "Civic Hospital" } }
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=municipal+ward+office+${encodeURIComponent(report.city)}`, title: "Municipal Ward Office" } },
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=hospital+${encodeURIComponent(report.city)}`, title: "Civic Hospital" } }
       ];
     }
 
@@ -1721,6 +1722,215 @@ app.post("/api/translate-formal", async (req, res) => {
   }
 });
 
+// Audio Transcription endpoint using gemini-3.5-flash
+app.post("/api/transcribe-audio", async (req, res) => {
+  const { audio, mimeType } = req.body;
+  if (!audio) {
+    return res.status(400).json({ error: "Audio data is required." });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.json({ transcription: "[Offline Fallback] (Voice recorded successfully, but Gemini API key is not configured to transcribe)" });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const cleanBase64 = audio.includes(",") ? audio.split(",")[1] : audio;
+    const cleanMime = mimeType || "audio/webm";
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [
+        {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: cleanMime
+          }
+        },
+        "Transcribe this speech verbatim. Do not explain, summarize, or describe the audio. Only return the transcribed words exactly as spoken."
+      ]
+    });
+
+    res.json({ transcription: response.text || "" });
+  } catch (err: any) {
+    console.error("Audio Transcription Error:", err);
+    res.status(500).json({ error: err.message || "Failed to transcribe audio." });
+  }
+});
+
+// Low-latency suggestions endpoint using gemini-3.1-flash-lite
+app.post("/api/suggest-details", async (req, res) => {
+  const { description } = req.body;
+  if (!description) {
+    return res.status(400).json({ error: "Description is required." });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.json({ title: "Community Civic Issue", category: "other" });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: `Suggest a concise professional title (maximum 5 words) and a category matching exactly one of: pothole, garbage, streetlight, water, electricity, sewage, encroachment, other.
+Description: "${description}"`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            category: { type: Type.STRING }
+          },
+          required: ["title", "category"]
+        },
+        systemInstruction: "You are a rapid response municipal intake bot. Provide low-latency, highly accurate title and category categorization strictly matching the JSON schema."
+      }
+    });
+
+    const parsed = JSON.parse(response.text.trim());
+    res.json(parsed);
+  } catch (err: any) {
+    console.error("Low-Latency suggest-details Error:", err);
+    res.status(500).json({ error: err.message || "Failed to get suggestions" });
+  }
+});
+
+// High-thinking expert civil/municipal engineering plan endpoint using gemini-3.1-pro-preview
+app.post("/api/reports/:id/expert-plan", async (req, res) => {
+  const { id } = req.params;
+  const db = loadDB();
+  const report = db.reports.find((r: any) => r.id === id);
+  if (!report) {
+    return res.status(404).json({ error: "Report not found" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.json({
+      plan: `### [Offline Fallback Mode] Civic Action Plan for "${report.title}"
+
+1. **Immediate Precautionary Measures**: Place caution tape and barricades at ${report.address} to isolate the danger zone.
+2. **First-Response Inspection**: Mobilize standard civil inspection vehicle to evaluate structural integrity and depth of the hazard.
+3. **Engineering Intervention**: Mobilize materials and deploy standard crew to execute repair following city code.
+4. **Completion Assurance**: Conduct follow-up quality check to close SLA within estimated window.`
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const prompt = `Perform an advanced, highly rigorous municipal engineering and public safety analysis of this reported community issue:
+Title: "${report.title}"
+Category: "${report.category}"
+Severity: "${report.severity}"
+Address: "${report.address}" (City: ${report.city})
+Description: "${report.description}"
+
+Draft a comprehensive civic resolution plan including:
+1. Public safety hazards & immediate mitigation protocols (e.g., barriers, detours).
+2. Root-cause civil engineering hypothesis (why did this occur?).
+3. Structural/functional repair methodology & resource requirement checklist (equipment, labor).
+4. Multi-agency coordination strategy (e.g., PWD, Traffic Police, Local Water Board).
+5. SLA compliance plan to meet standard window of ${report.estimated_sla_hours || 48} hours.
+
+Format the response in elegant Markdown with sections.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: prompt,
+      config: {
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.HIGH
+        },
+        systemInstruction: "You are a senior civic engineer, risk specialist, and public works planner. Provide exhaustive, technical, and expert-level municipal resolution blueprints."
+      }
+    });
+
+    res.json({ plan: response.text || "No plan generated." });
+  } catch (err: any) {
+    console.error("Expert Plan High Thinking Error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate expert action plan." });
+  }
+});
+
+// Image Generation & Editing using gemini-3.1-flash-image-preview
+app.post("/api/generate-image", async (req, res) => {
+  const { prompt, aspectRatio, existingImageBase64 } = req.body;
+  if (!prompt) {
+    return res.status(400).json({ error: "Prompt is required." });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.status(400).json({ error: "Please configure your Gemini API Key in Settings to generate images." });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const parts: any[] = [];
+    if (existingImageBase64) {
+      const mimeType = existingImageBase64.split(";")[0]?.split(":")[1] || "image/png";
+      const base64Data = existingImageBase64.split(",")[1] || existingImageBase64;
+      parts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
+        }
+      });
+    }
+
+    parts.push({ text: prompt });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: { parts },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio || "1:1",
+          imageSize: "1K"
+        }
+      }
+    });
+
+    let imageUrl = "";
+    const candidateParts = response.candidates?.[0]?.content?.parts || [];
+    for (const part of candidateParts) {
+      if (part.inlineData) {
+        imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+        break;
+      }
+    }
+
+    if (!imageUrl) {
+      return res.status(500).json({ error: "No image was returned by the model: " + (response.text || "") });
+    }
+
+    res.json({ imageUrl });
+  } catch (err: any) {
+    console.error("Image generation error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate image" });
+  }
+});
+
 // ----------------------
 // ADMIN PANEL ROUTES
 // ----------------------
@@ -1908,6 +2118,258 @@ app.get("/api/admin/stats", (req, res) => {
   });
 });
 
+// Admin Weekly Report - Gemini Analysis
+app.post("/api/admin/weekly-report", async (req, res) => {
+  const db = loadDB();
+  const adminUser = db.users.find((u: any) => u.id === currentUserSessionId);
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).json({ error: "Unauthorized. Admin privileges required." });
+  }
+
+  const reports = db.reports || [];
+  const total = reports.length;
+  const now = new Date();
+
+  const breachedReports = reports.filter((r: any) => {
+    if (r.status === "resolved" || r.status === "rejected") return false;
+    if (!r.sla_deadline) return false;
+    return new Date(r.sla_deadline) < now;
+  });
+
+  const categories: Record<string, number> = {};
+  const severities: Record<string, number> = {};
+  reports.forEach((r: any) => {
+    categories[r.category] = (categories[r.category] || 0) + 1;
+    severities[r.severity] = (severities[r.severity] || 0) + 1;
+  });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    // Elegant dynamic fallback based on real database stats
+    let topCategory = "other";
+    let maxCount = 0;
+    Object.entries(categories).forEach(([cat, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        topCategory = cat;
+      }
+    });
+
+    const mockResponse = {
+      title: "Municipal Operational Performance & Incident Audit",
+      dateRange: `Audit Period: Last 7 Days (Ending ${new Date().toLocaleDateString("en-US", { month: 'long', day: 'numeric', year: 'numeric' })})`,
+      executiveSummary: `This week, the SpotSeReport platform cataloged a total of ${total} public service reports across active districts. Of these, ${reports.filter((r: any) => r.status === "pending").length} are pending triage, while ${reports.filter((r: any) => r.status === "resolved").length} have been successfully resolved by public works crews. The database displays a robust engagement level, reflecting strong citizen collaboration in reporting civic infrastructure anomalies.`,
+      topCategoryAnalysis: `The most frequent category logged during this period is "${topCategory.toUpperCase()}" with ${maxCount} active filings. Systemic analysis suggests seasonal or infrastructure vulnerabilities. Immediate dispatch of localized public works inspection crews is recommended to prevent compounding deterioration in regional clusters.`,
+      trendAnalysis: `Out of all logged records, ${breachedReports.length} reports have exceeded their designated Service Level Agreement (SLA) response windows. Close supervision is required in high-priority zones where critical severity incidents have been flagged to reduce potential public safety liabilities.`,
+      keyRecommendations: [
+        `Establish a predictive maintenance program targeting high-vulnerability sectors in the "${topCategory}" category to preempt citizen complaints.`,
+        `Optimize the dispatch pipeline for reports exceeding standard SLA targets, prioritizing critical-priority hazards to ensure public safety compliance.`,
+        `Deploy seasonal weather-preparedness or grid-insulation guidelines to district administrators to decrease high-severity incident loads.`
+      ]
+    };
+    return res.json(mockResponse);
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const context = {
+      totalCount: total,
+      statusBreakdown: {
+        pending: reports.filter((r: any) => r.status === 'pending').length,
+        validated: reports.filter((r: any) => r.status === 'validated').length,
+        assigned: reports.filter((r: any) => r.status === 'assigned').length,
+        inProgress: reports.filter((r: any) => r.status === 'in_progress').length,
+        resolved: reports.filter((r: any) => r.status === 'resolved').length,
+        rejected: reports.filter((r: any) => r.status === 'rejected').length,
+      },
+      categories,
+      severities,
+      breachCount: breachedReports.length,
+      recentIncidents: reports.slice(-15).map((r: any) => ({
+        title: r.title,
+        category: r.category,
+        severity: r.severity,
+        city: r.city,
+        status: r.status,
+        created_at: r.created_at
+      }))
+    };
+
+    const prompt = `You are an expert municipal data analyst and senior urban planner.
+Perform a professional weekly diagnostic and predictive audit on this real-time municipal dataset of community incident reports:
+
+---
+MUNICIPAL DATA:
+${JSON.stringify(context, null, 2)}
+---
+
+Generate a comprehensive analytical report containing:
+1. A concise professional report title.
+2. A formal date range indicating the current audit window (e.g. "Weekly Audit: July 12 - July 18, 2026" based on current date).
+3. "executiveSummary": An elegant, high-level summary of the overall volume, general service resolution status, and civic urgency level.
+4. "topCategoryAnalysis": A comprehensive analysis of the most common issue category, identifying potential systemic city-wide vulnerabilities (e.g. heavy monsoon rain affecting roads, power grid overloading, dump sites saturation) and specific containment recommendations.
+5. "trendAnalysis": A diagnostic breakdown of high severity or critical emergencies, SLA breaches, and any regional (city) hotspots.
+6. "keyRecommendations": A list of 3 highly actionable, strategic urban planning/public works recommendations to mitigate future incidents.
+
+Keep the tone academic, authoritative, and solutions-oriented. Format the response strictly to match the requested JSON schema.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are a senior municipal operations strategist. Always structure your response exactly as JSON matching the provided schema.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            dateRange: { type: Type.STRING },
+            executiveSummary: { type: Type.STRING },
+            topCategoryAnalysis: { type: Type.STRING },
+            trendAnalysis: { type: Type.STRING },
+            keyRecommendations: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ["title", "dateRange", "executiveSummary", "topCategoryAnalysis", "trendAnalysis", "keyRecommendations"]
+        }
+      }
+    });
+
+    const parsed = JSON.parse(response.text.trim());
+    res.json(parsed);
+  } catch (err: any) {
+    console.error("Gemini Weekly Report Error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate weekly audit." });
+  }
+});
+
+// Admin Daily Insight - Gemini Analysis
+app.post("/api/admin/daily-insight", async (req, res) => {
+  const db = loadDB();
+  const adminUser = db.users.find((u: any) => u.id === currentUserSessionId);
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).json({ error: "Unauthorized. Admin privileges required." });
+  }
+
+  const reports = db.reports || [];
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // Filter reports from the last 24 hours
+  const dailyReports = reports.filter((r: any) => {
+    const reportDate = new Date(r.created_at || r.createdAt || now);
+    return reportDate >= oneDayAgo;
+  });
+
+  const totalDaily = dailyReports.length;
+  const criticalDaily = dailyReports.filter((r: any) => r.severity === "critical" || r.severity === "high").length;
+  const resolvedDaily = dailyReports.filter((r: any) => r.status === "resolved").length;
+  const percentage = totalDaily > 0 ? Math.round((resolvedDaily / totalDaily) * 100) : 100;
+
+  // Let's get the most recent overall reports as context if 24h is empty, to make the summary informative
+  const recentOverall = reports.slice(-10);
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    // Dynamic elegant fallback
+    let summaryText = "";
+    let primaryVuln = "Infrastructure Maintenance";
+    if (totalDaily > 0) {
+      const topCat = dailyReports[0].category;
+      summaryText = `Over the past 24 hours, ${totalDaily} civic incidents were submitted. Attention is drawn towards critical reports regarding "${topCat}" in the active sectors, demanding expedited crew allocation to prevent compounding hazards.`;
+      primaryVuln = topCat;
+    } else {
+      summaryText = "No critical municipal incidents have been logged in the last 24 hours. General municipal infrastructure services remain optimal across all primary tracking sectors. Scheduled preventative monitoring continues.";
+    }
+
+    const mockResponse = {
+      summary: summaryText,
+      criticalIssueCount: criticalDaily,
+      resolvedPercentage: percentage,
+      primaryVulnerability: primaryVuln,
+      safetyDirective: totalDaily > 0 ? "Initiate rapid dispatch of localized emergency response crews." : "Maintain general utility monitoring."
+    };
+    return res.json(mockResponse);
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const context = {
+      totalDailyCount: totalDaily,
+      criticalDailyCount: criticalDaily,
+      resolvedPercentage: percentage,
+      dailyIncidents: dailyReports.map((r: any) => ({
+        title: r.title,
+        category: r.category,
+        severity: r.severity,
+        city: r.city,
+        status: r.status,
+        description: r.description
+      })),
+      recentOverallContext: recentOverall.map((r: any) => ({
+        title: r.title,
+        category: r.category,
+        severity: r.severity,
+        city: r.city,
+        status: r.status
+      }))
+    };
+
+    const prompt = `You are an elite urban operations dispatcher and municipal strategist.
+Analyze this real-time city data detailing the last 24 hours of community incident reports:
+
+---
+DAILY MUNICIPAL DATA:
+${JSON.stringify(context, null, 2)}
+---
+
+Generate a concise, highly focused 'Daily Insight' object containing:
+1. "summary": A powerful, brief (2-3 sentences max) text summary analyzing the most critical municipal issues identified in the last 24 hours (or recent trends if no new reports exist in the last 24h). Keep it urgent, direct, and actionable.
+2. "criticalIssueCount": An integer count of the critical/high severity reports in the last 24 hours.
+3. "resolvedPercentage": An integer from 0 to 100 representing the resolution percentage of last 24h reports.
+4. "primaryVulnerability": A short phrase representing the main issue category or system under stress.
+5. "safetyDirective": A one-line operational directive for the municipal field teams.
+
+Be direct, highly authoritative, and professional. Structure the response strictly to match the requested JSON schema.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are a real-time city operations coordinator. Always structure your response exactly as JSON matching the provided schema.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: { type: Type.STRING },
+            criticalIssueCount: { type: Type.INTEGER },
+            resolvedPercentage: { type: Type.INTEGER },
+            primaryVulnerability: { type: Type.STRING },
+            safetyDirective: { type: Type.STRING }
+          },
+          required: ["summary", "criticalIssueCount", "resolvedPercentage", "primaryVulnerability", "safetyDirective"]
+        }
+      }
+    });
+
+    const parsed = JSON.parse(response.text.trim());
+    res.json(parsed);
+  } catch (err: any) {
+    console.error("Gemini Daily Insight Error:", err);
+    res.status(500).json({ error: err.message || "Failed to generate daily intelligence insight." });
+  }
+});
+
 // Serve frontend assets in production
 if (process.env.NODE_ENV !== "production") {
   const { createServer: createViteServer } = await import("vite");
@@ -1928,7 +2390,84 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-app.listen(PORT, "0.0.0.0", async () => {
+const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log(`[SpotseReport] Server running on http://0.0.0.0:${PORT}`);
   await syncFromFirestore();
+});
+
+// Real-time Voice Conversation WebSocket Bridge
+const wss = new WebSocketServer({ server });
+
+wss.on("connection", async (clientWs, req) => {
+  try {
+    const reqUrl = req.url || "";
+    if (!reqUrl.includes("/api/live")) {
+      clientWs.close();
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      clientWs.send(JSON.stringify({ error: "Gemini API Key is not configured on server. Please add your key in Settings." }));
+      clientWs.close();
+      return;
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        }
+      }
+    });
+
+    const session = await ai.live.connect({
+      model: "gemini-3.1-flash-live-preview",
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
+        },
+        systemInstruction: "You are a professional local municipal voice assistant for SpotSeReport. Citizens can talk with you about local community issues, pothole repairs, garbage cleanup, streetlights, water-logging, or general civic regulations. Respond in a brief, conversational, empathetic, and polite tone. Keep answers under 2 sentences since this is a real-time voice call.",
+      },
+      callbacks: {
+        onmessage: (message) => {
+          const audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+          if (audio) {
+            clientWs.send(JSON.stringify({ audio }));
+          }
+          if (message.serverContent?.interrupted) {
+            clientWs.send(JSON.stringify({ interrupted: true }));
+          }
+        },
+      },
+    });
+
+    clientWs.on("message", (data) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.audio) {
+          session.sendRealtimeInput({
+            audio: { data: parsed.audio, mimeType: "audio/pcm;rate=16000" },
+          });
+        }
+      } catch (err) {
+        console.error("Live WebSocket Error forwarding message:", err);
+      }
+    });
+
+    clientWs.on("close", () => {
+      try {
+        session.close();
+      } catch (err) {
+        console.error("Error closing Live API session:", err);
+      }
+    });
+
+  } catch (err: any) {
+    console.error("Failed to connect to Gemini Live session:", err);
+    clientWs.send(JSON.stringify({ error: "Failed to connect to Voice Assistant." }));
+    clientWs.close();
+  }
 });

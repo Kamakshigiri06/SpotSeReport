@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkles, MapPin, Bot, Search, ArrowRight, ExternalLink } from "lucide-react";
+import { Sparkles, MapPin, Bot, Search, ArrowRight, ExternalLink, Mic, MicOff } from "lucide-react";
 
 interface AILocationAssistantProps {
   reportId: string;
@@ -14,6 +14,75 @@ export default function AILocationAssistant({ reportId, address, category, city 
   const [response, setResponse] = useState<string | null>(null);
   const [sources, setSources] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  const toggleSpeechRecognition = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Speech recognition is not supported in this browser. Please use Google Chrome or Safari.");
+      return;
+    }
+
+    try {
+      setError(null);
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.lang = "en-IN"; // Dynamic dialect
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (event: any) => {
+        const resultText = event.results[event.results.length - 1][0].transcript;
+        if (resultText) {
+          setQuery(prev => prev ? `${prev} ${resultText}` : resultText);
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        console.error("Speech Recognition Error:", event.error);
+        if (event.error !== "no-speech") {
+          if (event.error === "not-allowed") {
+            setError("Microphone blocked (not-allowed). Please ensure microphone permissions are granted in your browser, or click the 'Open in New Tab' button in the top right of the preview to bypass iframe policy restrictions.");
+          } else {
+            setError(`Speech recognition error: ${event.error}`);
+          }
+        }
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+    } catch (err: any) {
+      console.error(err);
+      setError("Failed to initialize speech recognition.");
+      setIsListening(false);
+    }
+  };
 
   const presets = category === "garbage" || category === "sewage" 
     ? [
@@ -109,18 +178,37 @@ export default function AILocationAssistant({ reportId, address, category, city 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Ask about nearest administrative, utility or safety hubs..."
-            className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-3 focus:ring-2 focus:ring-teal-500 focus:bg-white focus:outline-none"
+            className={`w-full text-xs bg-slate-50 border rounded-xl pl-3.5 pr-20 py-3 focus:ring-2 focus:ring-teal-500 focus:bg-white focus:outline-none transition-all duration-150 ${
+              isListening ? "border-rose-300 ring-2 ring-rose-100" : "border-slate-200"
+            }`}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleQuery();
             }}
           />
-          <button
-            onClick={() => handleQuery()}
-            disabled={loading || !query.trim()}
-            className="absolute right-1.5 top-1.5 p-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg disabled:opacity-40 transition cursor-pointer"
-          >
-            <Search className="w-3.5 h-3.5" />
-          </button>
+          <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+            <button
+              onClick={toggleSpeechRecognition}
+              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                isListening
+                  ? "bg-rose-50 text-rose-600 border-rose-200"
+                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+              }`}
+              title={isListening ? "Stop listening" : "Speak question"}
+            >
+              {isListening ? (
+                <MicOff className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+              ) : (
+                <Mic className="w-3.5 h-3.5 text-slate-500" />
+              )}
+            </button>
+            <button
+              onClick={() => handleQuery()}
+              disabled={loading || !query.trim()}
+              className="p-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg disabled:opacity-40 transition cursor-pointer flex items-center justify-center"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 

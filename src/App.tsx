@@ -13,6 +13,7 @@ import XPBar, { getBadgeDetails } from "./components/XPBar";
 import CommunityFeed from "./components/CommunityFeed";
 import BountiesMarketplace from "./components/BountiesMarketplace";
 import AuthPortal from "./components/AuthPortal";
+import LiveVoiceAssistant from "./components/LiveVoiceAssistant";
 import { auth } from "./firebase";
 import { signOut, onAuthStateChanged } from "firebase/auth";
 import { 
@@ -1296,6 +1297,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {currentProfile && <LiveVoiceAssistant />}
 
     </div>
   );

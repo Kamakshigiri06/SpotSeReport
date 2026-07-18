@@ -4,7 +4,8 @@ import { StatusBadge, SeverityBadge } from "./StatusBadge";
 import { getSLARemaining } from "./ReportCard";
 import { 
   ShieldAlert, CheckCircle, Truck, Wrench, Ban, Clock, 
-  Search, MapPin, ArrowRight, Eye, RefreshCw, BarChart2, Star 
+  Search, MapPin, ArrowRight, Eye, RefreshCw, BarChart2, Star,
+  Brain, Sparkles, TrendingUp, AlertTriangle, FileText, Lightbulb
 } from "lucide-react";
 
 interface AdminPanelProps {
@@ -24,6 +25,54 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Gemini weekly report states
+  const [weeklyReport, setWeeklyReport] = useState<any>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  // Gemini daily insight states
+  const [dailyInsight, setDailyInsight] = useState<any>(null);
+  const [loadingInsight, setLoadingInsight] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+
+  const fetchWeeklyReport = async () => {
+    try {
+      setLoadingReport(true);
+      setReportError(null);
+      const res = await fetch("/api/admin/weekly-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) throw new Error("Could not generate weekly intelligence summary.");
+      const data = await res.json();
+      setWeeklyReport(data);
+    } catch (err: any) {
+      console.error(err);
+      setReportError(err.message || "Failed to analyze trends.");
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  const fetchDailyInsight = async () => {
+    try {
+      setLoadingInsight(true);
+      setInsightError(null);
+      const res = await fetch("/api/admin/daily-insight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) throw new Error("Could not retrieve daily operational insight.");
+      const data = await res.json();
+      setDailyInsight(data);
+    } catch (err: any) {
+      console.error(err);
+      setInsightError(err.message || "Failed to analyze daily trends.");
+    } finally {
+      setLoadingInsight(false);
+    }
+  };
 
   // Modals / Action states
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -66,6 +115,11 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
   useEffect(() => {
     fetchAdminData();
   }, [cityFilter, statusFilter, severityFilter, searchQuery]);
+
+  useEffect(() => {
+    fetchWeeklyReport();
+    fetchDailyInsight();
+  }, []);
 
   const handleAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +203,94 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 font-sans">
-      
+
+      {/* ⚡ GEMINI DAILY INTELLIGENCE INSIGHTS CARD */}
+      <div className="bg-gradient-to-r from-teal-950/80 to-slate-900 text-slate-100 rounded-3xl border border-teal-500/20 shadow-xl p-5 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-teal-400/10 border border-teal-400/20 flex items-center justify-center text-teal-400">
+              <Sparkles className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-xs font-black uppercase tracking-wider text-teal-300 flex items-center gap-1.5">
+                Daily Operational Insight
+                <span className="text-[8px] bg-teal-400/10 text-teal-300 px-2 py-0.5 rounded-full border border-teal-400/20 uppercase font-black tracking-widest">Real-time AI</span>
+              </h2>
+              <p className="text-[10px] text-slate-400">Concise analysis of critical municipal issues identified in the last 24 hours</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchDailyInsight}
+            disabled={loadingInsight}
+            className="p-2 hover:bg-slate-800 rounded-xl transition cursor-pointer text-slate-400 hover:text-slate-200 disabled:opacity-40"
+            title="Refresh Daily Insight"
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingInsight ? 'animate-spin text-teal-400' : ''}`} />
+          </button>
+        </div>
+
+        {loadingInsight && (
+          <div className="flex items-center gap-3 py-4 text-xs font-medium text-teal-400/90">
+            <div className="w-4 h-4 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+            Generating dynamic daily intelligence summary...
+          </div>
+        )}
+
+        {insightError && (
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 text-xs text-rose-300 flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            {insightError}
+          </div>
+        )}
+
+        {!loadingInsight && !dailyInsight && !insightError && (
+          <div className="text-center py-4 bg-slate-950/40 rounded-xl border border-slate-800/80">
+            <button
+              onClick={fetchDailyInsight}
+              className="text-xs text-teal-400 hover:text-teal-300 font-bold inline-flex items-center gap-1"
+            >
+              Analyze Last 24 Hours &rarr;
+            </button>
+          </div>
+        )}
+
+        {dailyInsight && !loadingInsight && (
+          <div className="space-y-4 animate-in fade-in duration-300">
+            <p className="text-xs md:text-[12.5px] text-slate-200 leading-relaxed font-medium bg-slate-950/40 rounded-2xl border border-slate-800/50 p-4">
+              {dailyInsight.summary}
+            </p>
+
+            {/* Quick Diagnostic Pillars */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-[9px] font-black text-slate-500 uppercase block tracking-wider">Critical/High Severity</span>
+                <span className="text-xs font-black text-rose-400 mt-1 block">
+                  {dailyInsight.criticalIssueCount} Incidents
+                </span>
+              </div>
+              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-[9px] font-black text-slate-500 uppercase block tracking-wider">Resolution Status</span>
+                <span className="text-xs font-black text-emerald-400 mt-1 block">
+                  {dailyInsight.resolvedPercentage}% Resolved
+                </span>
+              </div>
+              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-[9px] font-black text-slate-500 uppercase block tracking-wider">Primary Stress Point</span>
+                <span className="text-xs font-black text-teal-300 mt-1 block truncate" title={dailyInsight.primaryVulnerability}>
+                  {dailyInsight.primaryVulnerability}
+                </span>
+              </div>
+              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-[9px] font-black text-slate-500 uppercase block tracking-wider">Active Field Command</span>
+                <span className="text-xs font-semibold text-slate-300 mt-1 block truncate" title={dailyInsight.safetyDirective}>
+                  {dailyInsight.safetyDirective}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Upper Stats bar */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3.5">
@@ -185,6 +326,112 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
           </div>
         </div>
       )}
+
+      {/* 🧠 GEMINI WEEKLY PERFORMANCE & OPERATIONAL TRENDS REPORT */}
+      <div className="bg-slate-900 text-slate-100 rounded-3xl border border-slate-800 shadow-xl p-6 space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 shrink-0">
+              <Brain className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-slate-100 tracking-tight flex items-center gap-1.5">
+                Gemini Operational Trends & Weekly Diagnostics
+                <span className="text-[9px] bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-full border border-teal-500/30 font-black uppercase">Active AI</span>
+              </h2>
+              <p className="text-[10.5px] text-slate-400 mt-0.5">Automated deep trends audit and preventative public-works forecasting</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchWeeklyReport}
+            disabled={loadingReport}
+            className="self-start md:self-auto bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow cursor-pointer flex items-center gap-1.5 shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {loadingReport ? "Analyzing Trends..." : weeklyReport ? "Re-Analyze Data" : "Generate Intelligence Audit"}
+          </button>
+        </div>
+
+        {loadingReport && (
+          <div className="flex flex-col items-center justify-center py-12 space-y-3">
+            <div className="w-8 h-8 border-4 border-teal-400 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-semibold text-teal-300 animate-pulse">Running advanced municipal trend analytics engine...</p>
+          </div>
+        )}
+
+        {reportError && (
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-300 flex items-center gap-2 animate-in fade-in">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {reportError}
+          </div>
+        )}
+
+        {!loadingReport && !weeklyReport && !reportError && (
+          <div className="bg-slate-950/40 rounded-2xl border border-slate-800/80 p-6 text-center space-y-3">
+            <p className="text-xs text-slate-400 font-medium">Weekly intelligence reports offer real-time preventative recommendations and hotspots identification.</p>
+            <button
+              onClick={fetchWeeklyReport}
+              className="text-xs text-teal-400 hover:text-teal-300 font-bold inline-flex items-center gap-1"
+            >
+              Generate Weekly Report Now &rarr;
+            </button>
+          </div>
+        )}
+
+        {weeklyReport && !loadingReport && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2 animate-in fade-in duration-300">
+            {/* Left/Middle main commentary */}
+            <div className="md:col-span-2 space-y-5">
+              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-5 space-y-3">
+                <div className="flex justify-between items-center border-b border-slate-800/80 pb-2.5">
+                  <h3 className="font-bold text-teal-300 text-xs tracking-wider uppercase flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    {weeklyReport.title || "Operational Performance Report"}
+                  </h3>
+                  <span className="text-[10px] text-slate-500 font-bold tracking-tight">{weeklyReport.dateRange}</span>
+                </div>
+                <p className="text-[11.5px] text-slate-300 leading-relaxed font-sans">{weeklyReport.executiveSummary}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-slate-950/70 rounded-2xl border border-slate-800/60 p-4.5 space-y-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <TrendingUp className="w-3.5 h-3.5 text-indigo-400" />
+                    Top Category Vulnerability
+                  </span>
+                  <p className="text-[11px] text-slate-300 leading-relaxed font-sans text-slate-400">{weeklyReport.topCategoryAnalysis}</p>
+                </div>
+
+                <div className="bg-slate-950/70 rounded-2xl border border-slate-800/60 p-4.5 space-y-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-rose-400" />
+                    SLA & Urgent Severity Trends
+                  </span>
+                  <p className="text-[11px] text-slate-300 leading-relaxed font-sans text-slate-400">{weeklyReport.trendAnalysis}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right side strategic recommendations */}
+            <div className="bg-gradient-to-b from-teal-950/40 to-slate-950 rounded-2xl border border-teal-500/10 p-5 space-y-4">
+              <h4 className="text-xs font-black text-teal-300 uppercase tracking-widest flex items-center gap-1.5">
+                <Lightbulb className="w-4 h-4 text-teal-400 animate-pulse" />
+                Strategic Directives
+              </h4>
+              <div className="space-y-3.5">
+                {weeklyReport.keyRecommendations?.map((rec: string, idx: number) => (
+                  <div key={idx} className="flex gap-2.5 items-start">
+                    <span className="w-5 h-5 rounded-md bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-300 text-[10px] font-bold shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <p className="text-[11px] text-slate-300 leading-relaxed font-semibold">{rec}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Main filter interface */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">

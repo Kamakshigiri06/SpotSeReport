@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Report } from "../types";
-import { Navigation, Map as MapIcon, Plus, Minus } from "lucide-react";
+import { Navigation, Map as MapIcon, Plus, Minus, Compass } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -124,7 +124,10 @@ export default function IssueMap({
   const interactiveMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   const [isLocating, setIsLocating] = useState(false);
+  const [isTracking, setIsTracking] = useState(false);
   const [pinPosition, setPinPosition] = useState(selectedCoords || defaultCenter);
+  const watchIdRef = useRef<number | null>(null);
+  const userLocationMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   // Initialize Maplibre Map
   useEffect(() => {
@@ -153,11 +156,100 @@ export default function IssueMap({
       await handleCoordsChange(lat, lng);
     });
 
+    // Disable automatic tracking if user manually pans the map
+    map.on("dragstart", () => {
+      setIsTracking(false);
+    });
+
     return () => {
       map.remove();
       mapRef.current = null;
     };
   }, []);
+
+  // Continuous location tracking and auto-centering
+  useEffect(() => {
+    if (!isTracking) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (userLocationMarkerRef.current) {
+        userLocationMarkerRef.current.remove();
+        userLocationMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      setIsTracking(false);
+      return;
+    }
+
+    const id = navigator.geolocation.watchPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        const coords = { lat: latitude, lng: longitude };
+
+        if (mapRef.current) {
+          mapRef.current.flyTo({
+            center: [longitude, latitude],
+            zoom: 15,
+            essential: true
+          });
+
+          // Draw or update pulsing blue location dot for user position
+          if (userLocationMarkerRef.current) {
+            userLocationMarkerRef.current.setLngLat([longitude, latitude]);
+          } else {
+            const el = document.createElement("div");
+            el.className = "relative flex items-center justify-center";
+            el.style.width = "20px";
+            el.style.height = "20px";
+
+            const dot = document.createElement("div");
+            dot.className = "w-4 h-4 bg-blue-600 rounded-full border-2 border-white shadow-md z-10";
+
+            const pulse = document.createElement("div");
+            pulse.className = "absolute w-8 h-8 rounded-full bg-blue-500/40 animate-ping";
+
+            el.appendChild(dot);
+            el.appendChild(pulse);
+
+            const uMarker = new maplibregl.Marker({ element: el })
+              .setLngLat([longitude, latitude])
+              .addTo(mapRef.current);
+
+            userLocationMarkerRef.current = uMarker;
+          }
+        }
+
+        if (interactive) {
+          setPinPosition(coords);
+          await handleCoordsChange(latitude, longitude);
+        }
+      },
+      (error) => {
+        console.error("Continuous location tracking failed:", error);
+        setIsTracking(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    watchIdRef.current = id;
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (userLocationMarkerRef.current) {
+        userLocationMarkerRef.current.remove();
+        userLocationMarkerRef.current = null;
+      }
+    };
+  }, [isTracking, interactive]);
 
   // Update center when selectedCoords updates
   useEffect(() => {
@@ -416,6 +508,20 @@ export default function IssueMap({
           className="flex items-center justify-center w-11 h-11 bg-white hover:bg-slate-50 text-slate-700 hover:text-teal-600 rounded-full shadow-lg border border-slate-200/60 transition duration-200 disabled:opacity-75 cursor-pointer"
         >
           <Navigation className={`w-5 h-5 ${isLocating ? "animate-pulse text-teal-600" : ""}`} />
+        </button>
+
+        {/* Track My Location button */}
+        <button
+          id="btn-track-location"
+          onClick={() => setIsTracking((prev) => !prev)}
+          title={isTracking ? "Stop Tracking Location" : "Track My Location (Continuous Auto-Center)"}
+          className={`flex items-center justify-center w-11 h-11 rounded-full shadow-lg border transition duration-200 cursor-pointer ${
+            isTracking
+              ? "bg-teal-600 border-teal-700 text-white"
+              : "bg-white hover:bg-slate-50 border-slate-200/60 text-slate-700 hover:text-teal-600"
+          }`}
+        >
+          <Compass className={`w-5 h-5 ${isTracking ? "animate-spin [animation-duration:4s]" : ""}`} />
         </button>
 
         {/* Zoom In Button */}
