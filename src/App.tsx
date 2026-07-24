@@ -14,13 +14,14 @@ import CommunityFeed from "./components/CommunityFeed";
 import BountiesMarketplace from "./components/BountiesMarketplace";
 import AuthPortal from "./components/AuthPortal";
 import LiveVoiceAssistant from "./components/LiveVoiceAssistant";
+import { ALL_STATES, ALL_CITIES, STATES_AND_CITIES, getStateForCity, getLocationCoordinates } from "./data/locationData";
 import { auth } from "./firebase";
 import { signOut, onAuthStateChanged } from "firebase/auth";
 import { 
   MapPin, Eye, Filter, RefreshCw, Layers, Grid, List, 
   Map, Trophy, User, ShieldAlert, Sparkles, Plus, CheckCircle, Flame, Star, ShieldCheck,
   BarChart2, Activity, Shield, Building, Hammer, HelpCircle, ChevronRight,
-  MessageSquare, Bot, X, Gift, Wifi, WifiOff, LogOut
+  MessageSquare, Bot, X, Gift, Wifi, WifiOff, LogOut, Calendar
 } from "lucide-react";
 
 export default function App() {
@@ -43,21 +44,36 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
+  const [stateFilter, setStateFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateRangeFilter, setDateRangeFilter] = useState("all");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Navigation overlays
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [showReportForm, setShowReportForm] = useState(false);
+  const [selectedLongPressCoords, setSelectedLongPressCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedReportForDrawer, setSelectedReportForDrawer] = useState<Report | null>(null);
   const [showFloatingChat, setShowFloatingChat] = useState(false);
   const [showRoleConfirmModal, setShowRoleConfirmModal] = useState(false);
   const [pendingRole, setPendingRole] = useState<"admin" | "citizen" | null>(null);
   const [switchPassword, setSwitchPassword] = useState("");
   const [switchPasswordError, setSwitchPasswordError] = useState("");
+
+  const handleMapLongPress = (coords: { lat: number; lng: number }) => {
+    setSelectedLongPressCoords(coords);
+    setShowReportForm(true);
+    setActiveReportId(null);
+    setSelectedReportForDrawer(null);
+    if (activeTab === "admin-map") {
+      setActiveTab("map-feed");
+    }
+  };
 
   const fetchActiveProfile = async () => {
     try {
@@ -113,7 +129,7 @@ export default function App() {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const url = `/api/reports?city=${cityFilter}&status=${statusFilter}&severity=${severityFilter}&category=${categoryFilter}&query=${encodeURIComponent(searchQuery)}`;
+      const url = `/api/reports?state=${encodeURIComponent(stateFilter)}&city=${encodeURIComponent(cityFilter)}&status=${statusFilter}&severity=${severityFilter}&category=${categoryFilter}&query=${encodeURIComponent(searchQuery)}&dateRange=${dateRangeFilter}&startDate=${customStartDate}&endDate=${customEndDate}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error("Could not load reports");
       const data = await res.json();
@@ -170,7 +186,7 @@ export default function App() {
 
   useEffect(() => {
     fetchReports();
-  }, [cityFilter, statusFilter, severityFilter, categoryFilter, searchQuery]);
+  }, [stateFilter, cityFilter, statusFilter, severityFilter, categoryFilter, searchQuery, dateRangeFilter, customStartDate, customEndDate]);
 
   useEffect(() => {
     const saved = localStorage.getItem("offline_reports_queue");
@@ -320,6 +336,7 @@ export default function App() {
 
   const handleNewReportSuccess = (reportId: string) => {
     setShowReportForm(false);
+    setSelectedLongPressCoords(null);
     fetchReports();
     fetchActiveProfile(); // update XP points
     setNotifTrigger(prev => prev + 1);
@@ -333,10 +350,14 @@ export default function App() {
   };
 
   const clearFilters = () => {
+    setStateFilter("all");
     setCityFilter("all");
     setStatusFilter("all");
     setSeverityFilter("all");
     setCategoryFilter("all");
+    setDateRangeFilter("all");
+    setCustomStartDate("");
+    setCustomEndDate("");
     setSearchQuery("");
   };
 
@@ -364,6 +385,14 @@ export default function App() {
 
   const badgeDetails = getBadgeDetails(currentProfile.xp_points);
   const isAdmin = currentProfile.role === "admin";
+
+  const availableCities = Array.from(new Set(
+    stateFilter === "all"
+      ? ALL_CITIES
+      : (STATES_AND_CITIES[stateFilter]?.cities.map(c => c.name) || ALL_CITIES)
+  ));
+
+  const currentMapCenter = getLocationCoordinates(cityFilter !== "all" ? cityFilter : stateFilter) || { lat: 12.9562, lng: 77.7011 };
 
   return (
     <div className={`min-h-screen flex flex-col font-sans antialiased selection:bg-teal-500 selection:text-white transition-colors duration-300 ${
@@ -738,16 +767,23 @@ export default function App() {
         {showReportForm ? (
           <div className="space-y-4">
             <button
-              onClick={() => setShowReportForm(false)}
+              onClick={() => {
+                setShowReportForm(false);
+                setSelectedLongPressCoords(null);
+              }}
               className="text-xs font-bold text-slate-500 hover:text-teal-600 cursor-pointer flex items-center gap-1"
             >
               ← Cancel and Return
             </button>
             <NewReportForm
               onSuccess={handleNewReportSuccess}
-              onCancel={() => setShowReportForm(false)}
+              onCancel={() => {
+                setShowReportForm(false);
+                setSelectedLongPressCoords(null);
+              }}
               isOffline={isOffline}
               onQueueOffline={(newQueue) => setOfflineQueue(newQueue)}
+              initialCoords={selectedLongPressCoords || undefined}
             />
           </div>
         ) : activeReportId ? (
@@ -853,6 +889,8 @@ export default function App() {
                             reports={reports}
                             interactive={false}
                             onSelectReport={handleMapPinSelected}
+                            defaultCenter={currentMapCenter}
+                            onLongPressMap={handleMapLongPress}
                           />
                         </div>
 
@@ -978,16 +1016,44 @@ export default function App() {
                       </div>
 
                       {/* Inputs Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+                      <div className="grid grid-cols-2 md:grid-cols-7 gap-3.5">
+                        {/* State */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 block uppercase">State</label>
+                          <select
+                            value={stateFilter}
+                            onChange={(e) => {
+                              setStateFilter(e.target.value);
+                              setCityFilter("all");
+                            }}
+                            className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+                          >
+                            <option value="all">All States</option>
+                            {ALL_STATES.map((st) => (
+                              <option key={st} value={st}>{st}</option>
+                            ))}
+                          </select>
+                        </div>
+
                         {/* City */}
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 block uppercase">City</label>
-                          <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none">
+                          <select
+                            value={cityFilter}
+                            onChange={(e) => {
+                              const selectedCity = e.target.value;
+                              setCityFilter(selectedCity);
+                              if (selectedCity !== "all") {
+                                const matchedState = getStateForCity(selectedCity);
+                                if (matchedState) setStateFilter(matchedState);
+                              }
+                            }}
+                            className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+                          >
                             <option value="all">All Cities</option>
-                            <option value="Bengaluru">Bengaluru</option>
-                            <option value="Chennai">Chennai</option>
-                            <option value="Mumbai">Mumbai</option>
-                            <option value="Delhi">Delhi</option>
+                            {availableCities.map((ct) => (
+                              <option key={ct} value={ct}>{ct}</option>
+                            ))}
                           </select>
                         </div>
 
@@ -1032,6 +1098,21 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Date Range */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 block uppercase">Date Range</label>
+                          <select
+                            value={dateRangeFilter}
+                            onChange={(e) => setDateRangeFilter(e.target.value)}
+                            className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none font-medium text-slate-700"
+                          >
+                            <option value="all">All Time</option>
+                            <option value="week">Filed Last Week (7 Days)</option>
+                            <option value="month">Filed Last Month (30 Days)</option>
+                            <option value="custom">Custom Date Range 📅</option>
+                          </select>
+                        </div>
+
                         {/* Query Search */}
                         <div className="space-y-1 col-span-2 md:col-span-1">
                           <label className="text-[10px] font-bold text-slate-400 block uppercase">Search</label>
@@ -1044,6 +1125,42 @@ export default function App() {
                           />
                         </div>
                       </div>
+
+                      {/* Custom Date Picker Range Sub-Row */}
+                      {dateRangeFilter === "custom" && (
+                        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 bg-teal-50/50 p-3 rounded-xl border border-teal-100 animate-in fade-in duration-150">
+                          <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5 shrink-0">
+                            <Calendar className="w-3.5 h-3.5 text-teal-600" />
+                            Custom Range:
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">From:</label>
+                            <input
+                              type="date"
+                              value={customStartDate}
+                              onChange={(e) => setCustomStartDate(e.target.value)}
+                              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none font-medium text-slate-700"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">To:</label>
+                            <input
+                              type="date"
+                              value={customEndDate}
+                              onChange={(e) => setCustomEndDate(e.target.value)}
+                              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none font-medium text-slate-700"
+                            />
+                          </div>
+                          {(customStartDate || customEndDate) && (
+                            <button
+                              onClick={() => { setCustomStartDate(""); setCustomEndDate(""); }}
+                              className="text-[10px] font-bold text-teal-700 hover:underline cursor-pointer ml-auto"
+                            >
+                              Reset Custom Dates
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* RESULTS VIEWPORT */}
@@ -1063,6 +1180,8 @@ export default function App() {
                                 reports={reports}
                                 interactive={false}
                                 onSelectReport={handleMapPinSelected}
+                                defaultCenter={currentMapCenter}
+                                onLongPressMap={handleMapLongPress}
                               />
                             </div>
 

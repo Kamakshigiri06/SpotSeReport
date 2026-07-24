@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Report, IssueStatus, IssueSeverity } from "../types";
+import { ALL_STATES, ALL_CITIES, STATES_AND_CITIES, getStateForCity } from "../data/locationData";
 import { StatusBadge, SeverityBadge } from "./StatusBadge";
 import { getSLARemaining } from "./ReportCard";
 import { 
@@ -21,6 +22,7 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
   const [error, setError] = useState<string | null>(null);
 
   // Filters
+  const [stateFilter, setStateFilter] = useState("all");
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
@@ -98,7 +100,7 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
       setStats(statsData);
 
       // Fetch reports
-      const url = `/api/reports?city=${cityFilter}&status=${statusFilter}&severity=${severityFilter}&query=${encodeURIComponent(searchQuery)}`;
+      const url = `/api/reports?state=${encodeURIComponent(stateFilter)}&city=${encodeURIComponent(cityFilter)}&status=${statusFilter}&severity=${severityFilter}&query=${encodeURIComponent(searchQuery)}`;
       const reportsRes = await fetch(url);
       if (!reportsRes.ok) throw new Error("Could not load reports");
       const reportsData = await reportsRes.json();
@@ -114,7 +116,7 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
 
   useEffect(() => {
     fetchAdminData();
-  }, [cityFilter, statusFilter, severityFilter, searchQuery]);
+  }, [stateFilter, cityFilter, statusFilter, severityFilter, searchQuery]);
 
   useEffect(() => {
     fetchWeeklyReport();
@@ -443,14 +445,39 @@ export default function AdminPanel({ currentUserId, onViewReport, onRefreshFeed 
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {/* State */}
+          <select
+            value={stateFilter}
+            onChange={(e) => {
+              setStateFilter(e.target.value);
+              setCityFilter("all");
+            }}
+            className="text-xs bg-slate-50 border rounded-xl px-3.5 py-2.5 focus:outline-none text-slate-600 font-medium"
+          >
+            <option value="all">All States</option>
+            {ALL_STATES.map((st) => (
+              <option key={st} value={st}>{st}</option>
+            ))}
+          </select>
+
           {/* City */}
-          <select value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} className="text-xs bg-slate-50 border rounded-xl px-3.5 py-2.5 focus:outline-none text-slate-600 font-medium">
+          <select
+            value={cityFilter}
+            onChange={(e) => {
+              const selectedCity = e.target.value;
+              setCityFilter(selectedCity);
+              if (selectedCity !== "all") {
+                const matchedState = getStateForCity(selectedCity);
+                if (matchedState) setStateFilter(matchedState);
+              }
+            }}
+            className="text-xs bg-slate-50 border rounded-xl px-3.5 py-2.5 focus:outline-none text-slate-600 font-medium"
+          >
             <option value="all">All Cities</option>
-            <option value="Bengaluru">Bengaluru</option>
-            <option value="Chennai">Chennai</option>
-            <option value="Mumbai">Mumbai</option>
-            <option value="Delhi">Delhi</option>
+            {Array.from(new Set(stateFilter === "all" ? ALL_CITIES : (STATES_AND_CITIES[stateFilter]?.cities.map(c => c.name) || ALL_CITIES))).map((ct) => (
+              <option key={ct} value={ct}>{ct}</option>
+            ))}
           </select>
 
           {/* Status */}

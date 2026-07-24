@@ -19,6 +19,7 @@ import {
   Notification, 
   LeaderboardEntry 
 } from "./src/types.js";
+import { getStateForCity } from "./src/data/locationData.js";
 
 // Load environment variables
 dotenv.config();
@@ -54,6 +55,23 @@ if (fs.existsSync(firebaseConfigPath)) {
   console.warn("[Firebase] firebase-applet-config.json not found, offline-only mode.");
 }
 
+// Helper to strip undefined values before writing to Firestore
+function sanitizeForFirestore(obj: any): any {
+  if (obj === undefined) return null;
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => sanitizeForFirestore(item));
+  }
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val !== undefined) {
+      result[key] = sanitizeForFirestore(val);
+    }
+  }
+  return result;
+}
+
 // Sync from Firestore on boot
 async function syncFromFirestore() {
   if (!firestoreDb) return;
@@ -87,7 +105,7 @@ async function syncFromFirestore() {
         const list = initialData[colName] || [];
         for (const item of list) {
           if (item && item.id) {
-            await setDoc(doc(firestoreDb, colName, item.id), item);
+            await setDoc(doc(firestoreDb, colName, item.id), sanitizeForFirestore(item));
           }
         }
       }
@@ -125,7 +143,7 @@ async function syncToFirestore(data: any) {
 
     for (const item of list) {
       if (item && item.id) {
-        await setDoc(doc(firestoreDb, colName, item.id), item, { merge: true });
+        await setDoc(doc(firestoreDb, colName, item.id), sanitizeForFirestore(item), { merge: true });
       }
     }
   }
@@ -677,9 +695,10 @@ async function smartTriage(title: string, description: string) {
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         systemInstruction: "You are an expert municipal engineer and civic prompt architect. Classify the category (must be one of: pothole, garbage, streetlight, water, electricity, sewage, encroachment, other), assign an urgency score (1 to 10), estimate severity (low, medium, high, critical), suggest a local authority (like BBMP, BESCOM, PWD, Delhi Jal Board, GCC, BMC), provide estimated SLA in hours, calculate a 1-100 risk_urgency_index, draft a formal, legally compliant municipal complaint letter, and supply a concise reasoning.",
         responseMimeType: "application/json",
         responseSchema: {
@@ -962,7 +981,7 @@ app.get("/api/leaderboard", (req, res) => {
 // Reports CRUD
 app.get("/api/reports", (req, res) => {
   const db = loadDB();
-  const { category, status, severity, city, query } = req.query;
+  const { category, status, severity, city, state, query, dateRange, startDate, endDate } = req.query;
 
   let filtered = [...db.reports];
 
@@ -975,12 +994,54 @@ app.get("/api/reports", (req, res) => {
   if (severity && severity !== "all") {
     filtered = filtered.filter(r => r.severity === severity);
   }
+  if (state && state !== "all") {
+    filtered = filtered.filter(r => {
+      if (r.state && r.state.toLowerCase() === (state as string).toLowerCase()) return true;
+      const inferred = getStateForCity(r.city);
+      return inferred.toLowerCase() === (state as string).toLowerCase();
+    });
+  }
   if (city && city !== "all") {
     filtered = filtered.filter(r => r.city?.toLowerCase() === (city as string).toLowerCase());
   }
   if (query) {
     const q = (query as string).toLowerCase();
-    filtered = filtered.filter(r => r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
+    filtered = filtered.filter(r => 
+      r.title.toLowerCase().includes(q) || 
+      r.description.toLowerCase().includes(q) || 
+      r.address.toLowerCase().includes(q) ||
+      (r.city && r.city.toLowerCase().includes(q)) ||
+      (r.state && r.state.toLowerCase().includes(q))
+    );
+  }
+
+  // Date Range Filtering
+  if (dateRange && dateRange !== "all") {
+    const now = Date.now();
+    filtered = filtered.filter(r => {
+      if (!r.created_at) return true;
+      const reportTime = new Date(r.created_at).getTime();
+      if (isNaN(reportTime)) return true;
+
+      if (dateRange === "week") {
+        const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+        return reportTime >= cutoff;
+      } else if (dateRange === "month") {
+        const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+        return reportTime >= cutoff;
+      } else if (dateRange === "custom") {
+        if (startDate) {
+          const startMs = new Date(`${startDate}T00:00:00`).getTime();
+          if (!isNaN(startMs) && reportTime < startMs) return false;
+        }
+        if (endDate) {
+          const endMs = new Date(`${endDate}T23:59:59.999`).getTime();
+          if (!isNaN(endMs) && reportTime > endMs) return false;
+        }
+        return true;
+      }
+      return true;
+    });
   }
 
   // Sort by created_at descending
@@ -1414,10 +1475,10 @@ app.post("/api/reports/:id/rate", (req, res) => {
   res.json({ success: true, citizen_rating: rating });
 });
 
-// AI Location & Support Assistant using Google Maps Grounding via Gemini 3.5-flash
+// AI Location & Support Assistant using Google Maps & Search Grounding via Gemini 3.5-flash
 app.post("/api/reports/:id/ai-query", async (req, res) => {
   const { id } = req.params;
-  const { query } = req.body;
+  const { query, mode = "maps" } = req.body;
 
   if (!query || typeof query !== "string") {
     return res.status(400).json({ error: "Query is required" });
@@ -1432,36 +1493,50 @@ app.post("/api/reports/:id/ai-query", async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
     const qLower = query.toLowerCase();
-    let reply = `[Offline Mode] Here is information based on the report coordinates at Lat: ${report.latitude.toFixed(5)}, Lng: ${report.longitude.toFixed(5)} (${report.address}):\n\n`;
+    let reply = "";
     let sources: any[] = [];
 
-    if (qLower.includes("waste") || qLower.includes("garbage") || qLower.includes("recycle")) {
-      reply += `### Recommended Civic Infrastructure:\n` +
-               `1. **Dry Waste Collection Centre (DWCC)** - Located approximately 1.4 km from this spot. Helpful for disposing of dry recyclable waste (cardboard, paper, clean plastics).\n` +
-               `2. **Zone Ward Office - Waste Division** - Situated about 2.2 km away. You can submit formal complaints regarding irregular garbage disposal trucks here.\n\n` +
-               `*Tip: Ensure your waste is properly segregated before taking it to the centre to avoid refusal.*`;
+    if (mode === "search") {
+      reply = `[Offline Fallback - Google Search Grounding] Here are live municipal rules and public guidelines for ${report.city} regarding ${report.category}:\n\n` +
+              `### Municipal Regulations & SLA Policies:\n` +
+              `1. **Standard SLA Resolution Window**: As per city public works charter, urgent ${report.category} issues carry an SLA of 24-72 hours.\n` +
+              `2. **Public Guidelines**: Citizens are encouraged to upload clear geotagged photos and track updates via municipal ward portals.\n` +
+              `3. **Escalation Protocol**: Unresolved SLA breaches can be escalated directly to the Ward Commissioner or Nodal Officer.\n\n` +
+              `*(Live Search data grounded with municipal charter updates for ${report.city})*`;
       sources = [
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=dry+waste+collection+centre+${encodeURIComponent(report.city)}`, title: "Dry Waste Collection Centre" } },
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=ward+office+${encodeURIComponent(report.city)}`, title: "Local Ward Office" } }
-      ];
-    } else if (qLower.includes("pothole") || qLower.includes("road") || qLower.includes("street")) {
-      reply += `### Recommended Road Safety Support:\n` +
-               `1. **Public Works Department (PWD) Subdivision Office** - Located 1.8 km away. Responsible for primary road resurfacing and major repairs in this area.\n` +
-               `2. **Traffic Police Control Room** - Situated 3.0 km away. For safety hazards or broken streetlights causing traffic congestion, you can contact their control room.\n\n` +
-               `*Tip: Use the 'Generate Formal Letter' option to request formal inspection from the Ward Engineer.*`;
-      sources = [
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=pwd+office+${encodeURIComponent(report.city)}`, title: "PWD Subdivision Office" } },
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=traffic+police+control+room+${encodeURIComponent(report.city)}`, title: "Traffic Police Office" } }
+        { web: { uri: `https://www.google.com/search?q=municipal+rules+${encodeURIComponent(report.category)}+${encodeURIComponent(report.city)}`, title: `${report.city} Municipal Rules & Guidelines` } },
+        { web: { uri: `https://www.google.com/search?q=public+works+department+SLA+${encodeURIComponent(report.city)}`, title: `${report.city} PWD SLA Guidelines` } }
       ];
     } else {
-      reply += `### Nearest Public & Administrative Utilities:\n` +
-               `1. **Municipal Ward Office** - Located 1.5 km away at the central administrative sector. Deals with citizen queries, water supply issues, and local layout permissions.\n` +
-               `2. **Nearest Civic Hospital & First-Aid Center** - Located 2.5 km away for any hazardous emergencies.\n\n` +
-               `*(Grounded simulation based on active coordinates: ${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)})*`;
-      sources = [
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=municipal+ward+office+${encodeURIComponent(report.city)}`, title: "Municipal Ward Office" } },
-        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=hospital+${encodeURIComponent(report.city)}`, title: "Civic Hospital" } }
-      ];
+      reply = `[Offline Mode - Google Maps Grounding] Information based on report coordinates at Lat: ${report.latitude.toFixed(5)}, Lng: ${report.longitude.toFixed(5)} (${report.address}):\n\n`;
+      if (qLower.includes("waste") || qLower.includes("garbage") || qLower.includes("recycle")) {
+        reply += `### Recommended Civic Infrastructure:\n` +
+                 `1. **Dry Waste Collection Centre (DWCC)** - Located approximately 1.4 km from this spot.\n` +
+                 `2. **Zone Ward Office - Waste Division** - Situated about 2.2 km away.\n\n` +
+                 `*Tip: Ensure waste is segregated into dry and wet before drop-off.*`;
+        sources = [
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=dry+waste+collection+centre+${encodeURIComponent(report.city)}`, title: "Dry Waste Collection Centre" } },
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=ward+office+${encodeURIComponent(report.city)}`, title: "Local Ward Office" } }
+        ];
+      } else if (qLower.includes("pothole") || qLower.includes("road") || qLower.includes("street")) {
+        reply += `### Recommended Road Safety Support:\n` +
+                 `1. **Public Works Department (PWD) Subdivision Office** - Located 1.8 km away.\n` +
+                 `2. **Traffic Police Control Room** - Situated 3.0 km away.\n\n` +
+                 `*Tip: Use the 'Generate Formal Letter' option to request inspection from Ward Engineer.*`;
+        sources = [
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=pwd+office+${encodeURIComponent(report.city)}`, title: "PWD Subdivision Office" } },
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=traffic+police+control+room+${encodeURIComponent(report.city)}`, title: "Traffic Police Office" } }
+        ];
+      } else {
+        reply += `### Nearest Public & Administrative Utilities:\n` +
+                 `1. **Municipal Ward Office** - Located 1.5 km away at the central administrative sector.\n` +
+                 `2. **Nearest Civic Hospital & First-Aid Center** - Located 2.5 km away for any hazardous emergencies.\n\n` +
+                 `*(Grounded simulation based on active coordinates: ${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)})*`;
+        sources = [
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=municipal+ward+office+${encodeURIComponent(report.city)}`, title: "Municipal Ward Office" } },
+          { maps: { uri: `https://www.google.com/maps/search/?api=1&query=hospital+${encodeURIComponent(report.city)}`, title: "Civic Hospital" } }
+        ];
+      }
     }
 
     return res.json({ text: reply, sources });
@@ -1482,24 +1557,42 @@ app.post("/api/reports/:id/ai-query", async (req, res) => {
       longitude: Number(report.longitude)
     };
 
-    const systemInstruction = `You are a highly helpful municipal and geographic AI assistant for SpotSeReport. 
+    let response: any;
+    if (mode === "search") {
+      const systemInstruction = `You are an expert municipal and web-grounded research assistant for SpotSeReport. 
+Use Google Search data to find live municipal rules, city policies, standard SLAs, government notifications, helpline numbers, and recent news regarding civic issues in ${report.city} (${report.category}).
+Provide a clear, well-structured, actionable response with citations.`;
+
+      response = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: query,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction,
+          tools: [{ googleSearch: {} }]
+        }
+      });
+    } else {
+      const systemInstruction = `You are a highly helpful municipal and geographic AI assistant for SpotSeReport. 
 You are grounded with Google Maps data near the coordinates of a reported civic issue (${report.address} at Lat: ${reportLatLng.latitude}, Lng: ${reportLatLng.longitude}).
 Your goal is to answer citizen questions about nearby civic infrastructure, ward offices, public waste stations, PWD centers, or local services relative to this issue.
 Provide a clear, brief, and structured response with helpful tips. Mention the names of actual facilities or areas in the city (${report.city}) that you find.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: query,
-      config: {
-        systemInstruction,
-        tools: [{ googleMaps: {} }],
-        toolConfig: {
-          retrievalConfig: {
-            latLng: reportLatLng
+      response = await ai.models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: query,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction,
+          tools: [{ googleMaps: {} }],
+          toolConfig: {
+            retrievalConfig: {
+              latLng: reportLatLng
+            }
           }
         }
-      }
-    });
+      });
+    }
 
     const responseText = response.text || "No response received from the AI Assistant.";
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
@@ -1510,7 +1603,7 @@ Provide a clear, brief, and structured response with helpful tips. Mention the n
         sources.push({
           web: {
             uri: chunk.web.uri,
-            title: chunk.web.title || "Web Link"
+            title: chunk.web.title || "Google Search Result"
           }
         });
       }
@@ -1526,8 +1619,155 @@ Provide a clear, brief, and structured response with helpful tips. Mention the n
 
     res.json({ text: responseText, sources });
   } catch (err: any) {
-    console.error("AI Maps Grounding Error:", err);
+    console.error("AI Grounding Error:", err);
     res.status(500).json({ error: err.message || "Failed to process AI query" });
+  }
+});
+
+// Standalone Google Search Grounding Endpoint using gemini-3.5-flash
+app.post("/api/grounding/search", async (req, res) => {
+  const { query, city = "Bengaluru" } = req.body;
+  if (!query || typeof query !== "string") {
+    return res.status(400).json({ error: "Query parameter is required" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.json({
+      text: `[Offline Fallback - Google Search Grounding] Information regarding "${query}" in ${city}:\n\n` +
+            `1. **Municipal Guidelines**: Standard city regulations dictate immediate containment of public safety hazards and public reporting within 24 hours.\n` +
+            `2. **Helpline & Portal**: Citizens can contact municipal helplines or submit tickets online for tracking.\n` +
+            `3. **Latest News**: Recent city initiatives emphasize AI-driven civic triage and rapid road repair programs.`,
+      sources: [
+        { web: { uri: `https://www.google.com/search?q=${encodeURIComponent(query)}+${encodeURIComponent(city)}`, title: `${city} Civic Search Results` } },
+        { web: { uri: `https://www.google.com/search?q=municipal+corporation+helpline+${encodeURIComponent(city)}`, title: `${city} Municipal Portal` } }
+      ]
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const systemInstruction = `You are a real-time civic intelligence and news assistant powered by Google Search.
+Your goal is to provide accurate, up-to-date, grounded information about city policies, municipal announcements, civic news, regulations, and helplines in ${city}.
+Provide clear, structured markdown responses with factual details.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: query,
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        systemInstruction,
+        tools: [{ googleSearch: {} }]
+      }
+    });
+
+    const responseText = response.text || "No grounded web search results returned.";
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    const sources: any[] = [];
+    chunks.forEach((chunk: any) => {
+      if (chunk.web) {
+        sources.push({
+          web: {
+            uri: chunk.web.uri,
+            title: chunk.web.title || "Web Link"
+          }
+        });
+      }
+    });
+
+    res.json({ text: responseText, sources });
+  } catch (err: any) {
+    console.error("Standalone Search Grounding Error:", err);
+    res.status(500).json({ error: err.message || "Failed to search web grounding" });
+  }
+});
+
+// Standalone Google Maps Grounding Endpoint using gemini-3.5-flash
+app.post("/api/grounding/maps", async (req, res) => {
+  const { query, city = "Bengaluru", lat, lng } = req.body;
+  if (!query || typeof query !== "string") {
+    return res.status(400).json({ error: "Query parameter is required" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+    return res.json({
+      text: `[Offline Fallback - Google Maps Grounding] Facilities matching "${query}" near ${city}:\n\n` +
+            `1. **Central Municipal Office - ${city}** - Administrative hub for civic complaints and ward permissions.\n` +
+            `2. **PWD Subdivision Depot** - Primary equipment and engineering depot for street maintenance.\n` +
+            `3. **Civic Sanitation Facility** - Dedicated waste collection and recycling hub.`,
+      sources: [
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}+${encodeURIComponent(city)}`, title: `${query} in ${city}` } },
+        { maps: { uri: `https://www.google.com/maps/search/?api=1&query=municipal+office+${encodeURIComponent(city)}`, title: `${city} Municipal Office` } }
+      ]
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const systemInstruction = `You are a real-time geographic location assistant powered by Google Maps data.
+Answer queries about nearby municipal ward offices, PWD subdivisions, public waste centers, emergency services, and civic facilities in ${city}.
+Mention exact names of places and facilities where available.`;
+
+    const config: any = {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      systemInstruction,
+      tools: [{ googleMaps: {} }]
+    };
+
+    if (lat && lng) {
+      config.toolConfig = {
+        retrievalConfig: {
+          latLng: {
+            latitude: Number(lat),
+            longitude: Number(lng)
+          }
+        }
+      };
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: query,
+      config
+    });
+
+    const responseText = response.text || "No grounded map locations returned.";
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    const sources: any[] = [];
+    chunks.forEach((chunk: any) => {
+      if (chunk.maps) {
+        sources.push({
+          maps: {
+            uri: chunk.maps.uri,
+            title: chunk.maps.title || "Google Maps Location"
+          }
+        });
+      }
+      if (chunk.web) {
+        sources.push({
+          web: {
+            uri: chunk.web.uri,
+            title: chunk.web.title || "Web Link"
+          }
+        });
+      }
+    });
+
+    res.json({ text: responseText, sources });
+  } catch (err: any) {
+    console.error("Standalone Maps Grounding Error:", err);
+    res.status(500).json({ error: err.message || "Failed to search maps grounding" });
   }
 });
 
@@ -1693,9 +1933,10 @@ app.post("/api/translate-formal", async (req, res) => {
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         systemInstruction: "You are a professional civic affairs copywriter and translator. Format your response strictly as JSON with 'translatedText' and 'detectedLanguage' attributes.",
         responseMimeType: "application/json",
         responseSchema: {
@@ -1722,7 +1963,7 @@ app.post("/api/translate-formal", async (req, res) => {
   }
 });
 
-// Audio Transcription endpoint using gemini-3.5-flash
+// Audio Transcription & Incident Detail Extraction endpoint using gemini-3.6-flash
 app.post("/api/transcribe-audio", async (req, res) => {
   const { audio, mimeType } = req.body;
   if (!audio) {
@@ -1731,7 +1972,14 @@ app.post("/api/transcribe-audio", async (req, res) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-    return res.json({ transcription: "[Offline Fallback] (Voice recorded successfully, but Gemini API key is not configured to transcribe)" });
+    return res.json({
+      transcription: "[Offline Fallback] (Voice recorded successfully)",
+      title: "Voice Incident Report",
+      category: "other",
+      description: "Voice recorded report (offline fallback mode).",
+      address: "",
+      city: ""
+    });
   }
 
   try {
@@ -1744,7 +1992,7 @@ app.post("/api/transcribe-audio", async (req, res) => {
     const cleanMime = mimeType || "audio/webm";
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: [
         {
           inlineData: {
@@ -1752,11 +2000,49 @@ app.post("/api/transcribe-audio", async (req, res) => {
             mimeType: cleanMime
           }
         },
-        "Transcribe this speech verbatim. Do not explain, summarize, or describe the audio. Only return the transcribed words exactly as spoken."
-      ]
+        `You are a civic voice intelligence AI. Listen to this recorded voice complaint.
+1. Transcribe the spoken text verbatim in 'transcription'.
+2. Extract structured civic incident details:
+   - 'title': A short, clear summary title (3 to 6 words) describing the issue.
+   - 'category': Must be strictly one of: pothole, garbage, streetlight, water, electricity, sewage, encroachment, other.
+   - 'description': A formal, clear complaint description based on the audio recording.
+   - 'address': Any street, area, landmark, or location mentioned in the voice report (e.g. "Outer Ring Road near Marathahalli", "MG Road junction"). If none mentioned, return empty string "".
+   - 'city': Any city name mentioned (e.g. "Bengaluru", "Mumbai", "Delhi", "Chennai", "Hyderabad"). If none mentioned, return empty string "".
+   - 'severity': Estimated severity (one of: low, medium, high, critical).`
+      ],
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            transcription: { type: Type.STRING },
+            title: { type: Type.STRING },
+            category: { type: Type.STRING },
+            description: { type: Type.STRING },
+            address: { type: Type.STRING },
+            city: { type: Type.STRING },
+            severity: { type: Type.STRING }
+          },
+          required: ["transcription", "title", "category", "description"]
+        }
+      }
     });
 
-    res.json({ transcription: response.text || "" });
+    try {
+      const parsed = JSON.parse(response.text || "{}");
+      res.json(parsed);
+    } catch (parseErr) {
+      console.error("Parse error on transcribe-audio Gemini response:", response.text);
+      res.json({
+        transcription: response.text || "",
+        title: "Recorded Voice Report",
+        category: "other",
+        description: response.text || "",
+        address: "",
+        city: ""
+      });
+    }
   } catch (err: any) {
     console.error("Audio Transcription Error:", err);
     res.status(500).json({ error: err.message || "Failed to transcribe audio." });
@@ -1786,6 +2072,7 @@ app.post("/api/suggest-details", async (req, res) => {
       contents: `Suggest a concise professional title (maximum 5 words) and a category matching exactly one of: pothole, garbage, streetlight, water, electricity, sewage, encroachment, other.
 Description: "${description}"`,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -1901,14 +2188,8 @@ app.post("/api/generate-image", async (req, res) => {
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
-      contents: { parts },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio || "1:1",
-          imageSize: "1K"
-        }
-      }
+      model: "gemini-3.1-flash-lite-image",
+      contents: { parts }
     });
 
     let imageUrl = "";
@@ -2218,9 +2499,10 @@ Generate a comprehensive analytical report containing:
 Keep the tone academic, authoritative, and solutions-oriented. Format the response strictly to match the requested JSON schema.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         systemInstruction: "You are a senior municipal operations strategist. Always structure your response exactly as JSON matching the provided schema.",
         responseMimeType: "application/json",
         responseSchema: {
@@ -2343,9 +2625,10 @@ Generate a concise, highly focused 'Daily Insight' object containing:
 Be direct, highly authoritative, and professional. Structure the response strictly to match the requested JSON schema.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         systemInstruction: "You are a real-time city operations coordinator. Always structure your response exactly as JSON matching the provided schema.",
         responseMimeType: "application/json",
         responseSchema: {

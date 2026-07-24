@@ -12,6 +12,7 @@ interface NewReportFormProps {
   onCancel: () => void;
   isOffline?: boolean;
   onQueueOffline?: (newQueue: any[]) => void;
+  initialCoords?: { lat: number; lng: number };
 }
 
 // Preset visual assets to make testing super fast and fun in sandbox!
@@ -55,7 +56,7 @@ export const speechLanguages = [
   { code: "es-ES", name: "Spanish (Español)" },
 ];
 
-export default function NewReportForm({ onSuccess, onCancel, isOffline = false, onQueueOffline }: NewReportFormProps) {
+export default function NewReportForm({ onSuccess, onCancel, isOffline = false, onQueueOffline, initialCoords }: NewReportFormProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,10 +97,271 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
   const [photoUrl, setPhotoUrl] = useState(ISSUE_PRESETS[0].imageUrl);
   const [customPhotoInput, setCustomPhotoInput] = useState("");
 
-  // Coordinates
-  const [coords, setCoords] = useState({ lat: 12.9562, lng: 77.7011 }); // Default Bengaluru
+  // Coordinates & Address
+  const [coords, setCoords] = useState(initialCoords || { lat: 12.9562, lng: 77.7011 }); // Default Bengaluru or pre-filled from long-press
   const [address, setAddress] = useState("Outer Ring Road, Marathahalli, Bengaluru, Karnataka 560037");
   const [city, setCity] = useState("Bengaluru");
+
+  // Address writing & auto-pin states
+  const [writtenAddress, setWrittenAddress] = useState("Outer Ring Road, Marathahalli, Bengaluru, Karnataka 560037");
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
+  const [addressPinSuccess, setAddressPinSuccess] = useState<string | null>(null);
+
+  // Reverse geocode initial coordinates if pre-filled from map long press
+  React.useEffect(() => {
+    if (initialCoords) {
+      setCoords(initialCoords);
+      setIsGeocodingAddress(true);
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${initialCoords.lat}&lon=${initialCoords.lng}`, {
+        headers: { "User-Agent": "SpotseReport-Applet-Build" }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          const addrStr = data.display_name || `Coordinates (${initialCoords.lat.toFixed(5)}, ${initialCoords.lng.toFixed(5)})`;
+          handlePinChange(initialCoords.lat, initialCoords.lng, addrStr);
+          setWrittenAddress(addrStr);
+        })
+        .catch(() => {
+          const fallback = `Coordinates (${initialCoords.lat.toFixed(5)}, ${initialCoords.lng.toFixed(5)})`;
+          handlePinChange(initialCoords.lat, initialCoords.lng, fallback);
+          setWrittenAddress(fallback);
+        })
+        .finally(() => {
+          setIsGeocodingAddress(false);
+        });
+    }
+  }, [initialCoords?.lat, initialCoords?.lng]);
+
+  // Audio Voice Recording states (Microphone API + Gemini AI)
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
+  const [voiceExtractedData, setVoiceExtractedData] = useState<any>(null);
+  const [aiSuggestedCategory, setAiSuggestedCategory] = useState<string | null>(null);
+  const [isSuggestingCategoryFromVoice, setIsSuggestingCategoryFromVoice] = useState(false);
+
+  const audioRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const audioChunksRef = React.useRef<Blob[]>([]);
+  const voiceTimerRef = React.useRef<any>(null);
+
+  // Keep writtenAddress in sync when map pin moves
+  React.useEffect(() => {
+    if (address && !isGeocodingAddress) {
+      setWrittenAddress(address);
+    }
+  }, [address]);
+
+  React.useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    };
+  }, []);
+
+  // Geocode written address string and pin on map automatically
+  const handlePinWrittenAddress = async (targetAddr?: string) => {
+    const query = (targetAddr || writtenAddress || address).trim();
+    if (!query) {
+      setError("Please write or enter an address first.");
+      return;
+    }
+
+    setIsGeocodingAddress(true);
+    setError(null);
+    setAddressPinSuccess(null);
+
+    try {
+      // 1. OpenStreetMap Nominatim Geocoding Search
+      let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+      let res = await fetch(searchUrl);
+      let data = await res.json();
+
+      // Fallback with current city context if first query returned empty
+      if ((!data || data.length === 0) && city) {
+        searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${query}, ${city}, India`)}&limit=1`;
+        res = await fetch(searchUrl);
+        data = await res.json();
+      }
+
+      if (data && data.length > 0) {
+        const item = data[0];
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        const displayName = item.display_name || query;
+
+        handlePinChange(lat, lng, displayName);
+        setWrittenAddress(displayName);
+        setAddressPinSuccess(`Address written & pinned on map! (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+        setTimeout(() => setAddressPinSuccess(null), 5000);
+      } else {
+        setError(`Could not locate coordinates for address "${query}". Try adding a landmark or city.`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError("Failed to geocode written address. Please check network connection.");
+    } finally {
+      setIsGeocodingAddress(false);
+    }
+  };
+
+  // Small Gemini call (gemini-3.1-flash-lite) to suggest incident category based on transcribed voice text content
+  const handleSuggestCategoryFromVoiceText = async (textToAnalyze?: string) => {
+    const text = (textToAnalyze || description || voiceExtractedData?.transcription || "").trim();
+    if (!text) {
+      setError("Please write or speak a voice report first to analyze category!");
+      return;
+    }
+
+    setIsSuggestingCategoryFromVoice(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/suggest-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: text })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.category) {
+        const validCat = data.category.toLowerCase().trim();
+        if (["pothole", "garbage", "streetlight", "water", "electricity", "sewage", "encroachment", "other"].includes(validCat)) {
+          setCategory(validCat as IssueCategory);
+          setAiSuggestedCategory(validCat);
+        }
+        if (data.title && !title) {
+          setTitle(data.title);
+        }
+      }
+    } catch (err: any) {
+      console.error("Error running small Gemini call for voice category suggestion:", err);
+    } finally {
+      setIsSuggestingCategoryFromVoice(false);
+    }
+  };
+
+  // Record Voice Report using Browser Microphone API
+  const startVoiceRecording = async () => {
+    setError(null);
+    setVoiceExtractedData(null);
+    setAiSuggestedCategory(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      } catch (e) {
+        try {
+          recorder = new MediaRecorder(stream, { mimeType: "audio/ogg" });
+        } catch (e2) {
+          recorder = new MediaRecorder(stream);
+        }
+      }
+
+      audioRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64Audio = reader.result as string;
+          setIsTranscribingVoice(true);
+          try {
+            const res = await fetch("/api/transcribe-audio", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                audio: base64Audio,
+                mimeType: recorder.mimeType || "audio/webm"
+              })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              const finalDesc = data.description || data.transcription || "";
+              if (finalDesc) {
+                setDescription(finalDesc);
+              }
+              if (data.title) {
+                setTitle(data.title);
+              }
+              if (data.category && ["pothole", "garbage", "streetlight", "water", "electricity", "sewage", "encroachment", "other"].includes(data.category)) {
+                setCategory(data.category as IssueCategory);
+                setAiSuggestedCategory(data.category);
+              }
+              if (data.severity && ["low", "medium", "high", "critical"].includes(data.severity)) {
+                setSeverity(data.severity as IssueSeverity);
+              }
+              if (data.address && data.address.trim()) {
+                setWrittenAddress(data.address);
+                handlePinWrittenAddress(data.address);
+              }
+
+              setVoiceExtractedData(data);
+
+              // Secondary small Gemini call to refine/confirm category suggestion based on transcribed text if needed
+              if (finalDesc) {
+                handleSuggestCategoryFromVoiceText(finalDesc);
+              }
+            } else {
+              setError(data.error || "Failed to transcribe voice report.");
+            }
+          } catch (err: any) {
+            console.error(err);
+            setError("Error sending voice recording to Gemini API.");
+          } finally {
+            setIsTranscribingVoice(false);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+      };
+
+      recorder.start(100);
+      setIsVoiceRecording(true);
+      setVoiceRecordingSeconds(0);
+
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error("Microphone access error:", err);
+      if (err.name === "NotAllowedError" || err.message?.includes("Permission denied")) {
+        setError("Microphone permission denied. Please allow microphone access or click 'Open in New Tab' to bypass iframe policy restrictions.");
+      } else {
+        setError("Could not access microphone: " + (err.message || "Unknown error"));
+      }
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (audioRecorderRef.current && isVoiceRecording) {
+      audioRecorderRef.current.stop();
+      setIsVoiceRecording(false);
+    }
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (audioRecorderRef.current && isVoiceRecording) {
+      audioRecorderRef.current.onstop = null;
+      audioRecorderRef.current.stop();
+      setIsVoiceRecording(false);
+    }
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+    }
+  };
 
   // AI Triage results from server
   const [triage, setTriage] = useState<any>(null);
@@ -667,6 +929,21 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
 
       <div className="p-6 md:p-8">
 
+        {/* Long-press map pre-fill notification */}
+        {initialCoords && (
+          <div className="mb-6 p-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-xs font-bold text-teal-900 flex items-center justify-between shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-teal-600 shrink-0" />
+              <span>
+                Pre-filled from Map Long-Press: <strong>Lat {coords.lat.toFixed(5)}, Lng {coords.lng.toFixed(5)}</strong>
+              </span>
+            </div>
+            <span className="text-[10px] bg-teal-600 text-white px-2.5 py-1 rounded-full font-extrabold uppercase shrink-0">
+              Location Pinned
+            </span>
+          </div>
+        )}
+
         {/* STEP 1: PHOTO PROOF */}
         {step === 1 && (
           <div className="space-y-6 animate-in fade-in duration-200">
@@ -1069,14 +1346,61 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               </button>
             </div>
 
-            {/* Coordinate Details Display */}
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+            {/* Write Address & Auto-Pin Control */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-700">Decoded Civic Address:</span>
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-teal-600" />
+                  Write Address to Pin on Map:
+                </label>
                 <span className="text-[10px] font-mono text-slate-400">Lat: {coords.lat.toFixed(5)} / Lng: {coords.lng.toFixed(5)}</span>
               </div>
-              <p className="text-sm font-semibold text-slate-800 leading-tight">{address}</p>
-              <p className="text-xs text-slate-500">Detected City: <span className="font-bold text-teal-600">{city}</span></p>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  placeholder="Type street name, colony, landmark, or city address..."
+                  value={writtenAddress}
+                  onChange={(e) => setWrittenAddress(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handlePinWrittenAddress();
+                    }
+                  }}
+                  className="flex-1 text-sm bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-teal-500 focus:outline-none font-semibold text-slate-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => handlePinWrittenAddress()}
+                  disabled={isGeocodingAddress || !writtenAddress.trim()}
+                  className="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  {isGeocodingAddress ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Locating...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-3.5 h-3.5" />
+                      Write Address
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {addressPinSuccess && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-700 flex items-center gap-2 animate-in fade-in">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  {addressPinSuccess}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100 gap-1">
+                <span>Decoded Address: <strong className="text-slate-700">{address}</strong></span>
+                <span>City: <strong className="text-teal-600">{city}</strong></span>
+              </div>
             </div>
 
             {/* Nav Row */}
@@ -1112,6 +1436,110 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               <p className="text-xs text-slate-500 mt-1">
                 Provide a clear title and context. The AI Smart Triage will review this text to assign category, severity, and suggested department.
               </p>
+            </div>
+
+            {/* RECORD VOICE REPORT BANNER / CARD (Gemini AI Microphone API) */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 sm:p-5 rounded-2xl shadow-md border border-indigo-500/30 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                    isVoiceRecording ? "bg-rose-500 text-white animate-pulse" : "bg-indigo-600/30 text-indigo-300 border border-indigo-400/30"
+                  }`}>
+                    <Mic className={`w-5 h-5 ${isVoiceRecording ? "animate-bounce" : ""}`} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-2 text-white">
+                      Record Voice Report
+                      <span className="text-[9px] bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2 py-0.5 rounded font-mono uppercase">
+                        Gemini 3.6 Flash
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-snug">
+                      Speak your report into the microphone. Gemini AI will transcribe audio, extract the title, category, description, and automatically pin any mentioned address on the map!
+                    </p>
+                  </div>
+                </div>
+
+                {!isVoiceRecording && !isTranscribingVoice && (
+                  <button
+                    type="button"
+                    onClick={startVoiceRecording}
+                    className="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-black px-4 py-2.5 rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer shrink-0 border border-indigo-400/30"
+                  >
+                    <Mic className="w-4 h-4 text-indigo-200" />
+                    Record Voice Report
+                  </button>
+                )}
+              </div>
+
+              {/* Active Recording View */}
+              {isVoiceRecording && (
+                <div className="p-4 bg-slate-950/80 rounded-xl border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                  <div className="flex items-center gap-3">
+                    <span className="relative flex h-3.5 w-3.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
+                    </span>
+                    <div>
+                      <span className="text-xs font-bold text-rose-400 uppercase tracking-wider block">Recording Microphone Input... ({voiceRecordingSeconds}s)</span>
+                      <p className="text-[11px] text-slate-400">Speak clearly about the defect (e.g., "Deep crater pothole on MG Road near metro station").</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={stopVoiceRecording}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow active:scale-95 cursor-pointer"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                      Stop & Extract with Gemini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelVoiceRecording}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded-xl transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Transcribing View */}
+              {isTranscribingVoice && (
+                <div className="p-4 bg-indigo-950/60 rounded-xl border border-indigo-400/30 flex items-center gap-3 text-indigo-200 animate-pulse">
+                  <RefreshCw className="w-5 h-5 animate-spin text-indigo-400 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-white">Transcribing & Auto-Extracting Incident Details...</p>
+                    <p className="text-[11px] text-indigo-300">Gemini 3.6 Flash is analyzing voice recording, generating title, category, description, and address coordinates.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Extracted Data Summary */}
+              {voiceExtractedData && !isVoiceRecording && !isTranscribingVoice && (
+                <div className="p-3.5 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-emerald-200 text-xs space-y-1 animate-in fade-in">
+                  <div className="flex items-center justify-between font-bold text-emerald-300">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      Voice Report Auto-Extracted Successfully!
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setVoiceExtractedData(null)}
+                      className="text-slate-400 hover:text-white text-[10px] underline cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-emerald-100/90 leading-relaxed">
+                    <strong>Title:</strong> {title} | <strong>Category:</strong> {category}
+                    {writtenAddress && (
+                      <span> | <strong>Pinned Address:</strong> {writtenAddress}</span>
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -1256,11 +1684,32 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
               {/* Preliminary Category select (AI will refine) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 block">Initial Category Estimate:</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">Initial Category Estimate:</label>
+                    <button
+                      type="button"
+                      onClick={() => handleSuggestCategoryFromVoiceText()}
+                      disabled={isSuggestingCategoryFromVoice || (!description.trim() && !voiceExtractedData?.transcription)}
+                      className="text-[10px] font-black text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-lg inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-40"
+                    >
+                      {isSuggestingCategoryFromVoice ? (
+                        <>
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin text-indigo-600" />
+                          Suggesting...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-2.5 h-2.5 text-indigo-500" />
+                          Suggest Category (Gemini Lite)
+                        </>
+                      )}
+                    </button>
+                  </div>
+
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value as IssueCategory)}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none"
+                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500 font-semibold text-slate-800"
                   >
                     <option value="pothole">Pothole / Road Damage</option>
                     <option value="garbage">Garbage / Trash Dump</option>
@@ -1271,6 +1720,22 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
                     <option value="encroachment">Footpath Encroachment</option>
                     <option value="other">Other Civic Issue</option>
                   </select>
+
+                  {aiSuggestedCategory && (
+                    <div className="p-2 bg-indigo-50/80 border border-indigo-200 rounded-xl text-[11px] font-bold text-indigo-900 flex items-center justify-between animate-in fade-in">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                        Gemini Voice Category: <strong className="uppercase text-indigo-700">{aiSuggestedCategory}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCategory(aiSuggestedCategory as IssueCategory)}
+                        className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md hover:bg-indigo-700 font-extrabold cursor-pointer transition shadow-xs"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1285,6 +1750,45 @@ export default function NewReportForm({ onSuccess, onCancel, isOffline = false, 
                     <option value="high">High Severity (Hazardous)</option>
                     <option value="critical">Critical Emergency (Immediate danger)</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Location Address Override in Step 3 */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-teal-600" />
+                    Write Address Location:
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">Directly pins to map</span>
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. Outer Ring Road, Marathahalli, Bengaluru"
+                    value={writtenAddress}
+                    onChange={(e) => setWrittenAddress(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handlePinWrittenAddress();
+                      }
+                    }}
+                    className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-teal-500 focus:bg-white focus:outline-none font-semibold text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handlePinWrittenAddress()}
+                    disabled={isGeocodingAddress || !writtenAddress.trim()}
+                    className="bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition shadow flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isGeocodingAddress ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <MapPin className="w-3.5 h-3.5" />
+                    )}
+                    Write Address
+                  </button>
                 </div>
               </div>
             </div>

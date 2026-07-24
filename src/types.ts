@@ -8,6 +8,7 @@ export interface Profile {
   avatar_url: string;
   phone?: string;
   city: string;
+  state?: string;
   xp_points: number;
   badge_level: 'Newcomer' | 'Reporter' | 'Validator' | 'Champion' | 'Legend';
   reports_count: number;
@@ -28,6 +29,7 @@ export interface Report {
   lng: number;
   address: string;
   city: string;
+  state?: string;
   ward?: string;
   photo_urls: string[];
   video_url?: string;

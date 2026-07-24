@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Report, Comment, Profile } from "../types";
+import { ALL_STATES, ALL_CITIES, STATES_AND_CITIES, getStateForCity } from "../data/locationData";
 import { StatusBadge, SeverityBadge } from "./StatusBadge";
 import { getCategoryIcon } from "./ReportCard";
+import CivicGroundingSearch from "./CivicGroundingSearch";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   MessageSquare, ThumbsUp, MapPin, Calendar, Clock, 
@@ -23,6 +25,15 @@ export default function CommunityFeed({ currentUserId, onViewReport, onUpdateCou
   
   // Tab within community feed
   const [feedFilter, setFeedFilter] = useState<"recent" | "trending" | "resolved" | "my-city">("recent");
+
+  // State, City, Category, Date Range, Search Filters
+  const [selectedState, setSelectedState] = useState("all");
+  const [selectedCity, setSelectedCity] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedDateRange, setSelectedDateRange] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Expanded comments section state: reportId -> Comment[]
   const [expandedComments, setExpandedComments] = useState<Record<string, Comment[]>>({});
@@ -187,6 +198,63 @@ export default function CommunityFeed({ currentUserId, onViewReport, onUpdateCou
   const getFilteredReports = () => {
     let filtered = [...reports];
 
+    // State filter
+    if (selectedState !== "all") {
+      filtered = filtered.filter(r => {
+        if (r.state && r.state.toLowerCase() === selectedState.toLowerCase()) return true;
+        const inferredState = getStateForCity(r.city);
+        return inferredState.toLowerCase() === selectedState.toLowerCase();
+      });
+    }
+
+    // City filter
+    if (selectedCity !== "all") {
+      filtered = filtered.filter(r => r.city?.toLowerCase() === selectedCity.toLowerCase());
+    }
+
+    // Category filter
+    if (selectedCategory !== "all") {
+      filtered = filtered.filter(r => r.category === selectedCategory);
+    }
+
+    // Date Range Filter
+    if (selectedDateRange !== "all") {
+      const now = Date.now();
+      filtered = filtered.filter(r => {
+        if (!r.created_at) return true;
+        const reportTime = new Date(r.created_at).getTime();
+        if (isNaN(reportTime)) return true;
+
+        if (selectedDateRange === "week") {
+          return reportTime >= (now - 7 * 24 * 60 * 60 * 1000);
+        } else if (selectedDateRange === "month") {
+          return reportTime >= (now - 30 * 24 * 60 * 60 * 1000);
+        } else if (selectedDateRange === "custom") {
+          if (startDate) {
+            const startMs = new Date(`${startDate}T00:00:00`).getTime();
+            if (!isNaN(startMs) && reportTime < startMs) return false;
+          }
+          if (endDate) {
+            const endMs = new Date(`${endDate}T23:59:59.999`).getTime();
+            if (!isNaN(endMs) && reportTime > endMs) return false;
+          }
+          return true;
+        }
+        return true;
+      });
+    }
+
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(r => 
+        r.title.toLowerCase().includes(q) || 
+        r.description.toLowerCase().includes(q) || 
+        r.address.toLowerCase().includes(q) ||
+        (r.city && r.city.toLowerCase().includes(q))
+      );
+    }
+
     // Filter by tab
     if (feedFilter === "trending") {
       // Sort by upvotes + comments
@@ -261,6 +329,159 @@ export default function CommunityFeed({ currentUserId, onViewReport, onUpdateCou
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 📡 Live Grounded Civic Search & Maps Radar */}
+      <CivicGroundingSearch defaultCity={currentUserProfile?.city || "Bengaluru"} />
+
+      {/* 🧭 Filter Control Desk */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            <Filter className="w-4 h-4 text-teal-600" />
+            Filter Community Feed
+          </span>
+          {(selectedState !== "all" || selectedCity !== "all" || selectedCategory !== "all" || selectedDateRange !== "all" || startDate !== "" || endDate !== "" || searchQuery !== "") && (
+            <button
+              onClick={() => {
+                setSelectedState("all");
+                setSelectedCity("all");
+                setSelectedCategory("all");
+                setSelectedDateRange("all");
+                setStartDate("");
+                setEndDate("");
+                setSearchQuery("");
+              }}
+              className="text-[11px] font-bold text-teal-600 hover:underline cursor-pointer"
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {/* State */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">State</label>
+            <select
+              value={selectedState}
+              onChange={(e) => {
+                setSelectedState(e.target.value);
+                setSelectedCity("all");
+              }}
+              className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+            >
+              <option value="all">All States</option>
+              {ALL_STATES.map((st) => (
+                <option key={st} value={st}>{st}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* City */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">City</label>
+            <select
+              value={selectedCity}
+              onChange={(e) => {
+                const cityVal = e.target.value;
+                setSelectedCity(cityVal);
+                if (cityVal !== "all") {
+                  const st = getStateForCity(cityVal);
+                  if (st) setSelectedState(st);
+                }
+              }}
+              className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+            >
+              <option value="all">All Cities</option>
+              {Array.from(new Set(selectedState === "all" ? ALL_CITIES : (STATES_AND_CITIES[selectedState]?.cities.map(c => c.name) || ALL_CITIES))).map((ct) => (
+                <option key={ct} value={ct}>{ct}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Category</label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+            >
+              <option value="all">All Categories</option>
+              <option value="pothole">Pothole</option>
+              <option value="garbage">Garbage</option>
+              <option value="streetlight">Streetlight</option>
+              <option value="water">Water Supply</option>
+              <option value="electricity">Electricity</option>
+              <option value="sewage">Sewage</option>
+              <option value="encroachment">Encroachment</option>
+            </select>
+          </div>
+
+          {/* Date Range */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Date Range</label>
+            <select
+              value={selectedDateRange}
+              onChange={(e) => setSelectedDateRange(e.target.value)}
+              className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none font-medium text-slate-700"
+            >
+              <option value="all">All Time</option>
+              <option value="week">Filed Last Week (7 Days)</option>
+              <option value="month">Filed Last Month (30 Days)</option>
+              <option value="custom">Custom Date Range 📅</option>
+            </select>
+          </div>
+
+          {/* Search */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Search Feed</label>
+            <input
+              type="text"
+              placeholder="Search title, street..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full text-xs bg-slate-50 border rounded-xl px-2.5 py-2 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Custom Date Picker Range sub-row */}
+        {selectedDateRange === "custom" && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 bg-teal-50/50 p-3 rounded-xl border border-teal-100 animate-in fade-in duration-150">
+            <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5 shrink-0">
+              <Calendar className="w-3.5 h-3.5 text-teal-600" />
+              Custom Range:
+            </span>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase">From:</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none font-medium text-slate-700"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase">To:</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none font-medium text-slate-700"
+              />
+            </div>
+            {(startDate || endDate) && (
+              <button
+                onClick={() => { setStartDate(""); setEndDate(""); }}
+                className="text-[10px] font-bold text-teal-700 hover:underline cursor-pointer ml-auto"
+              >
+                Reset Dates
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 🧭 Tab Filters */}

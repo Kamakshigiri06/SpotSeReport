@@ -1,33 +1,93 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Report } from "../types";
-import { Navigation, Map as MapIcon, Plus, Minus, Compass } from "lucide-react";
+import { Navigation, Map as MapIcon, Plus, Minus, Compass, Layers, Maximize2, Minimize2, Filter, Eye, CheckCircle2, AlertTriangle, Clock, RefreshCw, X } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-// OpenStreetMap Raster Tile Style Specification for Maplibre GL
-const OSM_STYLE: any = {
-  version: 8,
-  sources: {
-    "osm": {
-      "type": "raster",
-      "tiles": [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      ],
-      "tileSize": 256,
-      "attribution": "&copy; OpenStreetMap contributors"
+// Tile Style Definitions for Maplibre GL
+const MAP_STYLES: Record<string, { id: string; name: string; icon: string; style: any }> = {
+  osm: {
+    id: "osm",
+    name: "OpenStreetMap",
+    icon: "🗺️",
+    style: {
+      version: 8,
+      sources: {
+        "osm": {
+          "type": "raster",
+          "tiles": [
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "&copy; OpenStreetMap contributors"
+        }
+      },
+      layers: [{ "id": "osm-tiles", "type": "raster", "source": "osm", "minzoom": 0, "maxzoom": 19 }]
     }
   },
-  layers: [
-    {
-      "id": "osm-tiles",
-      "type": "raster",
-      "source": "osm",
-      "minzoom": 0,
-      "maxzoom": 19
+  voyager: {
+    id: "voyager",
+    name: "Clean City (Light)",
+    icon: "🏙️",
+    style: {
+      version: 8,
+      sources: {
+        "voyager": {
+          "type": "raster",
+          "tiles": [
+            "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "&copy; CARTO & OpenStreetMap"
+        }
+      },
+      layers: [{ "id": "voyager-tiles", "type": "raster", "source": "voyager", "minzoom": 0, "maxzoom": 19 }]
     }
-  ]
+  },
+  dark: {
+    id: "dark",
+    name: "Dark Night",
+    icon: "🌙",
+    style: {
+      version: 8,
+      sources: {
+        "dark": {
+          "type": "raster",
+          "tiles": [
+            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "&copy; CARTO & OpenStreetMap"
+        }
+      },
+      layers: [{ "id": "dark-tiles", "type": "raster", "source": "dark", "minzoom": 0, "maxzoom": 19 }]
+    }
+  },
+  satellite: {
+    id: "satellite",
+    name: "Satellite View",
+    icon: "🛰️",
+    style: {
+      version: 8,
+      sources: {
+        "satellite": {
+          "type": "raster",
+          "tiles": [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          ],
+          "tileSize": 256,
+          "attribution": "&copy; Esri & Earthstar Geographics"
+        }
+      },
+      layers: [{ "id": "satellite-tiles", "type": "raster", "source": "satellite", "minzoom": 0, "maxzoom": 19 }]
+    }
+  }
 };
 
 const getCategoryDetails = (category: string) => {
@@ -108,6 +168,7 @@ interface IssueMapProps {
   onPinChange?: (lat: number, lng: number, address: string) => void;
   selectedCoords?: { lat: number; lng: number };
   defaultCenter?: { lat: number; lng: number };
+  onLongPressMap?: (coords: { lat: number; lng: number }) => void;
 }
 
 export default function IssueMap({
@@ -116,16 +177,23 @@ export default function IssueMap({
   interactive = false,
   onPinChange,
   selectedCoords,
-  defaultCenter = { lat: 12.9562, lng: 77.7011 } // Default to Bengaluru
+  defaultCenter = { lat: 12.9562, lng: 77.7011 }, // Default to Bengaluru
+  onLongPressMap
 }: IssueMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const interactiveMarkerRef = useRef<maplibregl.Marker | null>(null);
 
+  const [activeMapStyle, setActiveMapStyle] = useState<string>("voyager");
+  const [showStylePicker, setShowStylePicker] = useState<boolean>(false);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>("all");
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
   const [isLocating, setIsLocating] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
   const [pinPosition, setPinPosition] = useState(selectedCoords || defaultCenter);
+  const [longPressFeedback, setLongPressFeedback] = useState<{ lat: number; lng: number } | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const userLocationMarkerRef = useRef<maplibregl.Marker | null>(null);
 
@@ -137,7 +205,7 @@ export default function IssueMap({
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: OSM_STYLE,
+      style: MAP_STYLES.voyager.style,
       center: [initialCenter.lng, initialCenter.lat],
       zoom: interactive ? 15 : 12
     });
@@ -145,7 +213,7 @@ export default function IssueMap({
     mapRef.current = map;
 
     // Navigation Controls
-    map.addControl(new maplibregl.NavigationControl(), "top-left");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: false }), "top-left");
 
     // Click handler for placing a pin
     map.on("click", async (e) => {
@@ -166,6 +234,148 @@ export default function IssueMap({
       mapRef.current = null;
     };
   }, []);
+
+  // Sync Map Tile Style when changed
+  useEffect(() => {
+    if (mapRef.current && MAP_STYLES[activeMapStyle]) {
+      mapRef.current.setStyle(MAP_STYLES[activeMapStyle].style);
+    }
+  }, [activeMapStyle]);
+
+  // Handle Fullscreen resize trigger
+  const toggleFullscreen = () => {
+    setIsFullscreen(prev => !prev);
+    setTimeout(() => {
+      mapRef.current?.resize();
+    }, 150);
+  };
+
+  // Long-press event listener for triggering new report form with coordinates
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !onLongPressMap) return;
+
+    let timer: any = null;
+    let startPoint: { x: number; y: number } | null = null;
+    let targetLngLat: { lat: number; lng: number } | null = null;
+
+    const cancelTimer = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      startPoint = null;
+      targetLngLat = null;
+    };
+
+    const handleStart = (point: { x: number; y: number }, lngLat: { lat: number; lng: number }) => {
+      cancelTimer();
+      startPoint = point;
+      targetLngLat = lngLat;
+
+      timer = setTimeout(() => {
+        if (targetLngLat && onLongPressMap) {
+          const lat = targetLngLat.lat;
+          const lng = targetLngLat.lng;
+          setLongPressFeedback({ lat, lng });
+
+          // Render temporary animated ripple marker on map
+          if (mapRef.current) {
+            const el = document.createElement("div");
+            el.className = "relative flex items-center justify-center";
+            el.style.width = "48px";
+            el.style.height = "48px";
+            el.innerHTML = `
+              <div class="absolute w-12 h-12 rounded-full bg-teal-500/60 animate-ping"></div>
+              <div class="w-8 h-8 bg-teal-600 rounded-full border-2 border-white shadow-2xl flex items-center justify-center text-white text-sm font-bold z-10">📍</div>
+            `;
+            const tempMarker = new maplibregl.Marker({ element: el })
+              .setLngLat([lng, lat])
+              .addTo(mapRef.current);
+
+            setTimeout(() => {
+              tempMarker.remove();
+              setLongPressFeedback(null);
+            }, 2000);
+          }
+
+          onLongPressMap({ lat, lng });
+        }
+        timer = null;
+      }, 500); // 500ms long press threshold
+    };
+
+    const handleMove = (point: { x: number; y: number }) => {
+      if (!timer || !startPoint) return;
+      const dist = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
+      if (dist > 8) {
+        cancelTimer();
+      }
+    };
+
+    const onMouseDown = (e: maplibregl.MapMouseEvent) => {
+      if (e.originalEvent && (e.originalEvent.button === 0 || e.originalEvent.button === undefined)) {
+        handleStart(e.point, { lat: e.lngLat.lat, lng: e.lngLat.lng });
+      }
+    };
+
+    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      handleMove(e.point);
+    };
+
+    const onMouseUp = () => cancelTimer();
+
+    const onTouchStart = (e: maplibregl.MapTouchEvent) => {
+      if (e.points && e.points.length === 1) {
+        handleStart(e.points[0], { lat: e.lngLat.lat, lng: e.lngLat.lng });
+      } else {
+        cancelTimer();
+      }
+    };
+
+    const onTouchMove = (e: maplibregl.MapTouchEvent) => {
+      if (e.points && e.points.length === 1) {
+        handleMove(e.points[0]);
+      } else {
+        cancelTimer();
+      }
+    };
+
+    const onTouchEnd = () => cancelTimer();
+    const onDragStart = () => cancelTimer();
+
+    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+      if (onLongPressMap) {
+        const lat = e.lngLat.lat;
+        const lng = e.lngLat.lng;
+        setLongPressFeedback({ lat, lng });
+        onLongPressMap({ lat, lng });
+      }
+    };
+
+    map.on("mousedown", onMouseDown);
+    map.on("mousemove", onMouseMove);
+    map.on("mouseup", onMouseUp);
+    map.on("touchstart", onTouchStart);
+    map.on("touchmove", onTouchMove);
+    map.on("touchend", onTouchEnd);
+    map.on("touchcancel", onTouchEnd);
+    map.on("dragstart", onDragStart);
+    map.on("contextmenu", onContextMenu);
+
+    return () => {
+      cancelTimer();
+      map.off("mousedown", onMouseDown);
+      map.off("mousemove", onMouseMove);
+      map.off("mouseup", onMouseUp);
+      map.off("touchstart", onTouchStart);
+      map.off("touchmove", onTouchMove);
+      map.off("touchend", onTouchEnd);
+      map.off("touchcancel", onTouchEnd);
+      map.off("dragstart", onDragStart);
+      map.off("contextmenu", onContextMenu);
+    };
+  }, [onLongPressMap]);
 
   // Continuous location tracking and auto-centering
   useEffect(() => {
@@ -259,6 +469,17 @@ export default function IssueMap({
     }
   }, [selectedCoords]);
 
+  // Fly map when defaultCenter prop changes dynamically (e.g., when state or city filter changes)
+  useEffect(() => {
+    if (defaultCenter && mapRef.current) {
+      mapRef.current.flyTo({
+        center: [defaultCenter.lng, defaultCenter.lat],
+        zoom: 12,
+        essential: true
+      });
+    }
+  }, [defaultCenter?.lat, defaultCenter?.lng]);
+
   // Sync / render report markers
   useEffect(() => {
     const map = mapRef.current;
@@ -271,7 +492,12 @@ export default function IssueMap({
     // Skip existing reports if we are in placement mode
     if (interactive) return;
 
-    reports.forEach((report) => {
+    const filteredReports = reports.filter((report) => {
+      if (activeCategoryFilter === "all") return true;
+      return report.category === activeCategoryFilter;
+    });
+
+    filteredReports.forEach((report) => {
       let pinColor = "#F59E0B";
       if (report.status === "resolved") {
         pinColor = "#10B981";
@@ -388,7 +614,7 @@ export default function IssueMap({
 
       markersRef.current.push(marker);
     });
-  }, [reports, interactive]);
+  }, [reports, interactive, activeCategoryFilter]);
 
   // Sync custom draggable pin in interactive placement mode
   useEffect(() => {
@@ -496,6 +722,22 @@ export default function IssueMap({
     <div className="relative w-full h-full overflow-hidden rounded-2xl bg-slate-50 border border-slate-200/80 shadow-inner">
       {/* Map Target Canvas */}
       <div ref={mapContainerRef} className="w-full h-full" style={{ minHeight: "350px" }} />
+
+      {/* Long-press hint banner for users */}
+      {!interactive && onLongPressMap && (
+        <div className="absolute top-4 left-14 z-[350] bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-md text-[11px] font-bold text-slate-700 flex items-center gap-1.5 pointer-events-none transition">
+          <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse shrink-0"></span>
+          <span>Tip: Press & hold map spot to report issue</span>
+        </div>
+      )}
+
+      {/* Long-press active feedback toast */}
+      {longPressFeedback && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[450] bg-slate-900/95 text-white px-4 py-2 rounded-2xl border border-teal-500/50 shadow-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in zoom-in duration-150">
+          <span className="text-base">📍</span>
+          <span>Location selected: {longPressFeedback.lat.toFixed(4)}, {longPressFeedback.lng.toFixed(4)}! Opening report form...</span>
+        </div>
+      )}
 
       {/* Map Control Actions */}
       <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2">
